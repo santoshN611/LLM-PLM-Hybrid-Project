@@ -1,2 +1,3 @@
 # LLM-PLM-Hybrid-Project
 
+# DO NOT ADD *.CSV, *.NPZ, OR *.INDEX TO GIT COMMIT

@@ -88,7 +88,6 @@ def search_paginated_uniprot(max_pages=None):
                 )
             }
         page += 1
-        # parse next link
         link_hdr = r.headers.get("Link","")
         links    = parse_header_links(link_hdr.rstrip(","))
         next_link = next((L["url"] for L in links if L.get("rel")=="next"), None)
@@ -111,11 +110,9 @@ def main():
     w_clf.writerow(["accession","sequence","existence_level"])
     w_reg.writerow(["accession","sequence","ptm_site_count"])
 
-    # 1) Try TSV stream
     try:
         print("🔄 Attempting STREAM endpoint…")
-        seen = set()
-        count = 0
+        seen = set(); count = 0
         for rec in stream_all_uniprot():
             acc = rec["accession"]
             if acc in seen: continue
@@ -131,9 +128,8 @@ def main():
     except Exception as e:
         print(f"❌ STREAM failed ({e}), falling back to JSON…")
 
-    # 2) Fallback
     seen = set(); count = 0
-    for rec in search_paginated_uniprot(max_pages=None):
+    for rec in search_paginated_uniprot(max_pages=100):
         acc = rec["accession"]
         if acc in seen: continue
         seen.add(acc)

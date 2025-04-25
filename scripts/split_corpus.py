@@ -5,8 +5,7 @@ import os
 
 def split(df, seed=42):
     idx = np.arange(len(df))
-    np.random.seed(seed)
-    np.random.shuffle(idx)
+    np.random.seed(seed); np.random.shuffle(idx)
     n = len(df)
     train, val, test = np.split(idx, [int(.7*n), int(.85*n)])
     return df.iloc[train], df.iloc[val], df.iloc[test]
