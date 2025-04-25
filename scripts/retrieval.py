@@ -14,41 +14,36 @@ TAXON_MAP = {
 
 def search_uniprot_name(name: str, organism=None):
     """
-    1) Strict search (reviewed entries only)
-    2) Fallback search (all entries)
-    Returns the top accession or None.
+    Query UniProt for a UniProtKB accession by protein common name.
+    If `organism` is provided, search that taxon first, then all organisms.
+    Otherwise default to human then all organisms.
     """
     base = 'https://rest.uniprot.org/uniprotkb/search'
-    core_filters = [f'protein_name:"{name}"']
-    if organism:
-        core_filters.append(f'taxonomy_id:{organism}')
+    q_base = f'protein_name:"{name}"'
 
-    for reviewed in (True, False):
-        filters = list(core_filters)
-        if reviewed:
-            filters.append('reviewed:true')
-        query = '(' + ' AND '.join(filters) + ')'
-
+    passes = [organism] if organism else [TAXON_MAP['human'], None]
+    for org in passes:
+        scope = f"taxon={org}" if org else "all organisms"
+        q = q_base + (f' AND organism_id:{org}' if org else '')
         params = {
-            'query':  query,
+            'query':  q,
             'format': 'json',
             'size':   1,
             'fields': 'accession,organism_id'
         }
         try:
-            print(f"🔍 Searching UniProt ({'reviewed' if reviewed else 'all'}) for '{name}'…")
-            resp = requests.get(base, params=params, timeout=10)
-            resp.raise_for_status()
-            results = resp.json().get('results', [])
+            print(f"🔍 Searching UniProt ({scope}) for '{name}'…")
+            r = requests.get(base, params=params, timeout=10)
+            r.raise_for_status()
+            results = r.json().get('results', [])
             if results:
                 hit = results[0]
-                # accession alias maps to primaryAccession in JSON
-                acc = hit.get('primaryAccession') or hit.get('accession')
-                org = hit.get('organism_id')
-                print(f"✅ Found {acc} (taxon {org})")
+                acc = hit.get('accession')
+                org_id = hit.get('organism_id')
+                print(f"✅ Found {acc} (taxon {org_id})")
                 return acc
         except requests.exceptions.HTTPError as e:
-            warnings.warn(f"⚠️ UniProt search failed ({'reviewed' if reviewed else 'all'}): {e}")
+            warnings.warn(f"⚠️ UniProt search failed ({scope}): {e}")
 
     print(f"⚠️ No UniProt accession found for '{name}'.")
     return None
@@ -56,27 +51,36 @@ def search_uniprot_name(name: str, organism=None):
 
 def fetch_uniprot(acc: str):
     """
-    Fetch full UniProt entry for accession (no field filtering on server).
-    Returns dict with 'seq', 'pe', and 'ptm'.
+    Fetch entire UniProt JSON entry and extract:
+      - accession
+      - seq: sequence string
+      - pe: proteinExistence (string)
+      - ptm: count of modified residues
+      - organism_id: taxonomy ID
     """
     url = f'https://rest.uniprot.org/uniprotkb/{acc}.json'
-    params = {'format': 'json'}
     try:
         print(f"🔄 Fetching UniProt entry for {acc}…")
-        resp = requests.get(url, params=params, timeout=15)
-        resp.raise_for_status()
-        js = resp.json()
+        r = requests.get(url, timeout=15)
+        r.raise_for_status()
+        js = r.json()
 
-        seq = js['sequence']['value']
-        pe  = js['proteinExistence']
-        ptm_count = sum(
+        seq = js.get('sequence', {}).get('value')
+        pe  = js.get('proteinExistence', "")
+        ptm = sum(
             1 for f in js.get('features', [])
-            if f.get('type','').lower() == 'modified residue'
+            if f.get('type', '').lower() == 'modified residue'
         )
+        org = js.get('organism', {}).get('taxonId')
 
-        print(f"✅ UniProt: len={len(seq)}, pe={pe}, ptm={ptm_count}")
-        return {'seq': seq, 'pe': pe, 'ptm': ptm_count}
-
+        print(f"✅ UniProt: len={len(seq) if seq else 'NA'}, pe={pe}, ptm={ptm}, taxon={org}")
+        return {
+            'accession':    acc,
+            'seq':          seq,
+            'pe':           pe,
+            'ptm':          ptm,
+            'organism_id':  org
+        }
     except Exception as e:
         warnings.warn(f"⚠️ UniProt fetch failed for {acc}: {e}")
         return None
