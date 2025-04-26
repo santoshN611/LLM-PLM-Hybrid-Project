@@ -2,6 +2,12 @@
 
 A hybrid pipeline combining large language models (LLMs) and pretrained language models (PLMs) for protein existence classification and post-translational modification (PTM) site counting. This repository automates data collection, embedding generation, model training, retrieval indexing, and end-to-end evaluation.
 
+This project was done for CSE 7850 at Georgia Institute of Technology in Spring 2025.
+
+Authors:
+* Santosh Nachimuthu
+* Saiyash Vishnubhatt
+
 ## 📁 Directory Structure
 
 ```bash
@@ -138,7 +144,4 @@ Or execute each stage individually:
   ```
 
 ---
-
-For questions or issues, please open an issue in this repository. Happy modeling!
-``` 
 
