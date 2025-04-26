@@ -8,5 +8,5 @@ embeddings/*.npy
 # */*/__pycache__/*.pyc
 # Byte-compiled / optimized Python files
 # /retrieval/__pycache__/
-*.py[cod]
-*$py.class
+# *.py[cod]
+# *$py.class
