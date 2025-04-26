@@ -136,7 +136,8 @@ def main():
         print(f"❌ STREAM failed ({e}), falling back to JSON…")
 
     seen = set(); count = 0
-    for rec in search_paginated_uniprot(max_pages=5):
+    max_pages = 1000
+    for rec in tqdm(search_paginated_uniprot(max_pages=max_pages), total=max_pages, desc="Gathering Data"):
         acc = rec["accession"]
         if acc in seen: continue
         seen.add(acc)

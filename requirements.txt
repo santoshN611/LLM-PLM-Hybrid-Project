@@ -21,3 +21,5 @@ requests>=2.25.0
 
 absl-py
 rouge_score
+bert_score
+hf_xet

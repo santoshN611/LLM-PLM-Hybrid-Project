@@ -14,6 +14,7 @@ from evaluate import load as load_metric
 # load test corpus
 TEST_JSONL = Path(__file__).resolve().parent / "test_protein_qa.jsonl"
 entries    = [json.loads(line) for line in open(TEST_JSONL)]
+ # only doing small subset due to time limiations
 questions   = [e["question"] for e in entries]
 gold_answers= [e["answer"]   for e in entries]
 ids         = [e["id"]       for e in entries]
@@ -63,7 +64,7 @@ for q, gold in tqdm(
 bleu   = load_metric("bleu").compute(predictions=pred_answers, references=[[g] for g in gold_answers])["bleu"]
 rouge  = load_metric("rouge").compute(predictions=pred_answers, references=[[g] for g in gold_answers])
 meteor = load_metric("meteor").compute(predictions=pred_answers, references=[[g] for g in gold_answers])["meteor"]
-bertsc = load_metric("bertscore").compute(predictions=pred_answers, references=[[g] for g in gold_answers])["f1"]
+bertsc = load_metric("bertscore").compute(predictions=pred_answers, references=[[g] for g in gold_answers], lang="en")["f1"]
 
 print(f"BLEU: {bleu:.3f}")
 print(f"ROUGE: {rouge}")
