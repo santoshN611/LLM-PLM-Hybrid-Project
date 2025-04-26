@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-import torch, torch.nn as nn, numpy as np
+import torch
+import torch.nn as nn
+import numpy as np
 from pathlib import Path
 
 print("🔄 Starting tiny-heads training…")
@@ -8,33 +10,46 @@ class PEHead(nn.Module):
     def __init__(self, emb_dim):
         super().__init__()
         self.layers = nn.Sequential(
-            nn.Linear(emb_dim, 128), nn.ReLU(),
+            nn.Linear(emb_dim, 128),
+            nn.ReLU(),
             nn.Linear(128, 5)
         )
+
     def forward(self, x):
         return self.layers(x)
+
 
 class PTMHead(nn.Module):
     def __init__(self, emb_dim):
         super().__init__()
         self.layers = nn.Sequential(
-            nn.Linear(emb_dim, 128), nn.ReLU(),
+            nn.Linear(emb_dim, 128),
+            nn.ReLU(),
             nn.Linear(128, 1)
         )
+
     def forward(self, x):
         return self.layers(x)
 
+
 def load_data(prefix):
+    """
+    📥 Loads embeddings/{prefix}.npz → (X, y), squeezing any singleton dims.
+    """
     print(f"📥 Loading embeddings/{prefix}.npz…")
-    data = np.load(f"embeddings/{prefix}.npz")
-    X = data["X"]            # shape (N, 1, emb_dim)
-    X = X.squeeze(1)         # → (N, emb_dim)
+    data = np.load(f"embeddings/{prefix}.npz", allow_pickle=True)
+    X = data["X"]
+    X = np.squeeze(X)
+    if X.ndim != 2:
+        raise ValueError(f"❌ load_data: expected 2D array, got shape {X.shape}")
     y = data["y"]
+    print(f"ℹ️ Loaded X shape {X.shape}, y length {len(y)}")
     return X, y
 
-def train(model, X_tr, y_tr, X_va, y_va, criterion, optimizer, epochs=10):
+
+def train(model, X_tr, y_tr, X_va, y_va, criterion, optimizer, epochs=5000):
     best = float("inf")
-    for epoch in range(1, epochs+1):
+    for epoch in range(1, epochs + 1):
         model.train()
         optimizer.zero_grad()
 
@@ -69,24 +84,26 @@ def train(model, X_tr, y_tr, X_va, y_va, criterion, optimizer, epochs=10):
 
     print("🎉 Head training complete!")
 
+
 if __name__ == "__main__":
-    # Protein‐Existence head
+    # ── Protein-Existence head ────────────────────────────────────
     X_tr, y_tr = load_data("classification_train")
     X_va, y_va = load_data("classification_val")
-    y_tr, y_va = y_tr - 1, y_va - 1
+    y_tr, y_va = y_tr - 1, y_va - 1  # shift to 0-based
 
     emb_dim = X_tr.shape[1]
-    print(f"ℹ️ emb dim: {emb_dim}")
+    print(f"ℹ️ Embedding dimension: {emb_dim}")
 
     pe = PEHead(emb_dim)
     train(
         pe, X_tr, y_tr,
         X_va, y_va,
         nn.CrossEntropyLoss(),
-        torch.optim.Adam(pe.parameters())
+        torch.optim.Adam(pe.parameters()),
+        epochs=5000
     )
 
-    # PTM‐Count head
+    # ── PTM-Count head ───────────────────────────────────────────
     X_tr, y_tr = load_data("regression_train")
     X_va, y_va = load_data("regression_val")
     y_tr, y_va = np.log1p(y_tr), np.log1p(y_va)
@@ -96,5 +113,6 @@ if __name__ == "__main__":
         ptm, X_tr, y_tr,
         X_va, y_va,
         nn.SmoothL1Loss(),
-        torch.optim.Adam(ptm.parameters(), lr=1e-3, weight_decay=1e-5)
+        torch.optim.Adam(ptm.parameters(), lr=1e-3, weight_decay=1e-5),
+        epochs=5000
     )

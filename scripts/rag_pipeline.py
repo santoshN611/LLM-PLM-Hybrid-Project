@@ -1,19 +1,24 @@
-# rag_pipeline.py
 #!/usr/bin/env python3
-import os, re, warnings, math
-import torch, spacy
+import os
+import re
+import math
+import warnings
+import torch
+import spacy
 from transformers import BertTokenizerFast, BertForSequenceClassification
-
-# Suppress TensorFlow noise
-os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
 from tiny_heads import load_heads
 from retrieval import search_uniprot_name, fetch_uniprot, TAXON_MAP
+import retrieval_utils
+from adapters import BioBERTWithAdapters
+
+# Suppress TensorFlow oneDNN noise
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
 print("🚀 Starting RAG pipeline…")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-# ── Intent (BioBERT) ────────────────────────────────────────
+# ── Intent model (BioBERT) ────────────────────────────────────────
 print("📦 Loading BioBERT intent model…")
 tok_intent = BertTokenizerFast.from_pretrained('dmis-lab/biobert-base-cased-v1.1')
 tok_intent.model_max_length = 128
@@ -21,41 +26,69 @@ mdl_intent = BertForSequenceClassification.from_pretrained(
     'dmis-lab/biobert-base-cased-v1.1',
     num_labels=2
 ).to(DEVICE).eval()
-print("✅ BioBERT ready")
+print("✅ Intent model ready")
 
-# ── Protein NER ─────────────────────────────────────────────
+# ── NER (SciSpaCy) ───────────────────────────────────────────────
 print("📦 Loading SciSpaCy NER model…")
 nlp = spacy.load("en_ner_bc5cdr_md")
-print("✅ SciSpaCy ready")
+print("✅ NER ready")
 
-# ── tiny-heads ───────────────────────────────────────────────
+# ── tiny‐heads (PE & PTM predictors) ─────────────────────────────
 print("📦 Loading tiny-heads…")
 pe_head, ptm_head = load_heads(DEVICE)
 print("✅ tiny-heads loaded")
 
-# ── ESM-2 embedder via torch.hub ─────────────────────────────
-print("📦 Loading ESM-2 (via torch.hub)…")
+# ── Adapter-augmented BioBERT for QA ─────────────────────────────
+print("📦 Loading BioBERT+Adapters for QA…")
+tok_qa = BertTokenizerFast.from_pretrained('dmis-lab/biobert-base-cased-v1.1')
+model_qa = BioBERTWithAdapters().to(DEVICE).train()
+print("✅ QA model ready")
+
+# ── ESM-2 embedder (via torch.hub) ────────────────────────────────
+print("📦 Loading ESM-2 via torch.hub…")
 esm_model, alphabet = torch.hub.load(
     "facebookresearch/esm:main", "esm2_t6_8M_UR50D"
 )
-esm_model.to(DEVICE).eval()
+esm_model.eval().to(DEVICE)
 batch_converter = alphabet.get_batch_converter()
 print(f"✅ ESM-2 ready on {DEVICE}")
 
+# ── FAISS index + metadata ───────────────────────────────────────
+index, meta = retrieval_utils.load_index(
+    "embeddings/classification_train.index",
+    "embeddings/classification_train.meta.npy"
+)
+
+
 def parse_question(q: str):
-    """Extract task, accession, raw_seq, name, organism_id."""
-    # 1) task by keyword → fallback to BioBERT
+    """
+    Extracts:
+      - task: 'protein_existence' or 'ptm_count'
+      - accession (if present)
+      - raw_seq (if present)
+      - name (gene/protein name via NER or heuristics)
+      - organism taxon_id (if mentioned)
+    """
     low = q.lower()
-    if 'existence' in low:    task = 'protein_existence'
-    elif 'ptm' in low:        task = 'ptm_count'
+    # 1) keyword‐based intent shortcuts
+    exist_kw = ['existence', 'evidence', 'classification']
+    ptm_kw   = ['ptm', 'post-translational', 'modified residue', 'modification', 'site count']
+
+    if any(k in low for k in exist_kw):
+        task = 'protein_existence'
+    elif any(k in low for k in ptm_kw):
+        task = 'ptm_count'
     else:
+        # fallback to BioBERT classifier
         inp = tok_intent(q, return_tensors='pt', truncation=True).to(DEVICE)
         logits = mdl_intent(**inp).logits
-        task = 'protein_existence' if logits.argmax(-1).item()==0 else 'ptm_count'
+        task = 'protein_existence' if logits.argmax(-1).item() == 0 else 'ptm_count'
 
     # 2) accession?
-    acc = next((t.upper() for t in re.split(r'\W+', q)
-                if re.fullmatch(r'(?:[OPQ]\d[A-Z0-9]{3}\d|[A-NR-Z]\d[A-Z0-9]{3}\d)', t)), None)
+    acc = next((
+        t.upper() for t in re.split(r'\W+', q)
+        if re.fullmatch(r'(?:[OPQ]\d[A-Z0-9]{3}\d|[A-NR-Z]\d[A-Z0-9]{3}\d)', t)
+    ), None)
 
     # 3) raw sequence?
     mseq = re.search(r'([ACDEFGHIKLMNPQRSTVWY]{4,})', q.replace(' ', ''))
@@ -64,87 +97,93 @@ def parse_question(q: str):
     # 4) organism?
     org = next((tid for name, tid in TAXON_MAP.items() if name in low), None)
 
-    # 5) name: only if no acc & no raw
+    # 5) name via NER or heuristics
     name = None
     if not acc and not raw:
-        # 5a) special E. coli DnaK
-        if org == TAXON_MAP['ecoli']:
+        # E. coli special case
+        if org == TAXON_MAP.get('ecoli'):
             m = re.search(r'e\.?\s*coli\s+(\w+)', low)
             if m:
                 name = m.group(1)
-        # 5b) SciSpaCy NER
+        # SciSpaCy NER
         if not name:
             for ent in nlp(q).ents:
-                if ent.label_ in ("GENE_OR_GENE_PRODUCT","CHEMICAL"):
+                if ent.label_ in ("GENE_OR_GENE_PRODUCT", "CHEMICAL"):
                     name = ent.text
                     break
-        # 5c) “for X” or “of X”
+        # “for X” or “of X” fallback
         if not name:
             m2 = re.search(r'(?:for|of)\s+([A-Za-z0-9\-\s]+)', low)
             if m2:
                 name = m2.group(1).strip()
-    # 6) fallback: if still nothing, use the question body literally
+
     if not acc and not raw and not name:
         name = low
 
-    print(f"ℹ️ Parsed → task:{task}, acc:{acc}, raw:{bool(raw)}, name:{name!r}, org:{org}")
-    return dict(task=task, accession=acc, raw_seq=raw, name=name, organism=org)
+    return {
+        'task': task,
+        'accession': acc,
+        'raw_seq': raw,
+        'name': name,
+        'organism': org
+    }
+
 
 def embed_sequence(seq: str) -> torch.Tensor:
+    """Mean-pooled ESM-2 embedding for a given protein sequence."""
     _, _, toks = batch_converter([("Q", seq)])
     toks = toks.to(DEVICE)
     with torch.no_grad():
         reps = esm_model(toks, repr_layers=[6])["representations"][6]
     return reps.mean(1).squeeze(0)
 
+
 def answer(q: str) -> str:
     info = parse_question(q)
 
-    # 0) raw-seq answers override
+    # ── (A) Raw-sequence queries → adapter QA w/ FAISS context ─────────
     if info['raw_seq']:
-        emb = embed_sequence(info['raw_seq'])
-        if info['task']=='protein_existence':
-            lvl = pe_head(emb).softmax(-1).argmax(-1).item() + 1
-            names = ['protein','transcript','homology','predicted','uncertain']
-            return f"🤖 I predict level **{lvl} ({names[lvl-1]})** for your sequence."
-        est = max(0, int(round(math.expm1(ptm_head(emb).item()))))
-        return f"🤖 I predict **~{est}** PTM site{'s' if est!=1 else ''} for your sequence."
+        emb = embed_sequence(info['raw_seq']).cpu().numpy()
+        nbrs = retrieval_utils.search_neighbors(emb, k=5)
+        context = retrieval_utils.build_context_block(nbrs)
+        prompt = f"{context}\n\n{q}"
+        toks = tok_qa(prompt, return_tensors='pt', truncation=True, padding=True).to(DEVICE)
+        logits, cls_emb = model_qa(**toks)
+        pred = logits.argmax(-1).item()
+        if info['task'] == 'protein_existence':
+            return f"🤖 Predicted existence level **{pred+1}**."
+        else:
+            return f"🤖 Predicted PTM count class **{pred}**."
 
-    # 1) name→accession lookup
+    # ── (B) Name lookup → accession → factual UniProt JSON fetch ───────
     if info['name'] and not info['accession']:
-        a = search_uniprot_name(info['name'], organism=info['organism'])
-        info['accession'] = a
+        info['accession'] = search_uniprot_name(info['name'], info['organism'])
 
-    # 2) fetch UniProt JSON
     up = fetch_uniprot(info['accession']) if info['accession'] else None
     if not up:
         return "⚠️ Couldn’t map to UniProt. Please provide an accession or raw sequence."
 
     prot = info['name'] or up['accession']
-    org  = up.get('organism_name','')
     acc  = up['accession']
+    org  = up.get('organism_name', '')
 
-    if info['task']=='protein_existence':
+    if info['task'] == 'protein_existence':
         return (
-            f"📖 **{prot}** (UniProt **{acc}**, {org}) has existence level "
-            f"**{up['pe']}** according to UniProt."
+            f"📖 **{prot}** (UniProt **{acc}**, {org}) has existence level **{up['pe']}**."
+        )
+    else:
+        return (
+            f"📖 **{prot}** (UniProt **{acc}**, {org}) has **{up['ptm']}** annotated PTM "
+            f"site{'s' if up['ptm']!=1 else ''}."
         )
 
-    # ptm_count
-    return (
-        f"📖 **{prot}** (UniProt **{acc}**, {org}) has **{up['ptm']}** annotated PTM "
-        f"site{'s' if up['ptm']!=1 else ''} in UniProt. "
-        "You can supply a raw sequence for model‐based estimates."
-    )
 
-if __name__=="__main__":
+if __name__ == "__main__":
     for q in [
         "What is the protein existence level of lactase?",
-        "How many predicted PTM sites are there for P09812?",
+        "How many PTM sites for P09812?",
         "PTM count for MVHFAELVK?",
-        "Level of protein existence for ACDEFGHIKL?",
-        "What is the existence level of mouse hemoglobin?",
-        "PTM count for E. coli DnaK?"
+        "Predict existence level for MLLTEQFK right now."
     ]:
         print("▶", q)
         print("→", answer(q), "\n")

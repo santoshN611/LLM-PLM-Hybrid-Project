@@ -1,3 +1,4 @@
 *.csv
 *.npz
 embeddings/*.index
+embeddings/*.npy
