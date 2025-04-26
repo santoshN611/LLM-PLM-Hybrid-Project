@@ -12,6 +12,7 @@ import os
 import requests, csv, time
 from requests.utils import parse_header_links
 from pathlib import Path
+from tqdm import tqdm
 
 # existence level map to human language
 PE_MAP = {
