@@ -3,10 +3,6 @@
 embeddings/*.index
 embeddings/*.npy
 .venv
-# */__pycache__/
 *=*
-# */*/__pycache__/*.pyc
-# Byte-compiled / optimized Python files
-# /retrieval/__pycache__/
-# *.py[cod]
-# *$py.class
+*/__pycache__/*
+*.pyc
