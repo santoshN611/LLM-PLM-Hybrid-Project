@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import torch
 import torch.nn as nn
 import numpy as np
@@ -6,14 +5,13 @@ from pathlib import Path
 
 print("🔄 Starting tiny-heads training…")
 
-# ── Paths ─────────────────────────────────────────────────────────
-# Assume this script lives in <repo_root>/scripts/
+# paths
 ROOT      = Path(__file__).resolve().parent.parent.parent
 EMB_DIR   = ROOT / "llm_plm_hybrid" / "embeddings"
 HEADS_DIR = ROOT / "tiny_heads"
 HEADS_DIR.mkdir(exist_ok=True)
 
-# ── Data loader ───────────────────────────────────────────────────
+# data loader
 def load_data(prefix):
     """
     📥 Loads embeddings/<prefix>.npz → (X, y), squeezing singleton dims.
@@ -29,7 +27,7 @@ def load_data(prefix):
     print(f"ℹ️ Loaded X shape {X.shape}, y length {len(y)}")
     return X, y
 
-# ── Model definitions ─────────────────────────────────────────────
+# models
 class PEHead(nn.Module):
     def __init__(self, emb_dim):
         super().__init__()
@@ -52,7 +50,7 @@ class PTMHead(nn.Module):
     def forward(self, x):
         return self.layers(x)
 
-# ── Training loop ────────────────────────────────────────────────
+# training
 def train(model, X_tr, y_tr, X_va, y_va, criterion, optimizer, epochs=10):
     best_loss = float("inf")
     for epoch in range(1, epochs + 1):
@@ -88,7 +86,7 @@ def train(model, X_tr, y_tr, X_va, y_va, criterion, optimizer, epochs=10):
 
     print("🎉 Head training complete!")
 
-# ── Entry point ───────────────────────────────────────────────────
+
 if __name__ == "__main__":
     # Protein‐Existence head
     X_tr, y_tr = load_data("classification_train")

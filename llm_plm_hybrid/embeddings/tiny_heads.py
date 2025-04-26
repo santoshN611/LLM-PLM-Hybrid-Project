@@ -1,12 +1,8 @@
-#!/usr/bin/env python3
 import torch
 import torch.nn as nn
 from pathlib import Path
 
-# ── Directory where the pretrained head weights live ────────────────
-# Assumes you're running from the project root, so that
-#   <project_root>/tiny_heads/pe.pt  and  <project_root>/tiny_heads/ptm.pt
-# exist.
+
 HEADS_DIR = Path.cwd() / "tiny_heads"
 
 class PEHead(nn.Module):
@@ -42,14 +38,14 @@ def load_heads(device="cpu"):
       - pe:  PEHead, set to eval() on `device`
       - ptm: PTMHead, set to eval() on `device`
     """
-    # ── Load Protein-Existence head ────────────────────────────────────
+    # protein existence level classification head
     pe_state = torch.load(HEADS_DIR / "pe.pt", map_location=device)
     emb_dim = pe_state["layers.0.weight"].shape[1]
     pe = PEHead(emb_dim)
     pe.load_state_dict(pe_state)
     pe.to(device).eval()
 
-    # ── Load PTM-Count head ────────────────────────────────────────────
+    # ptm regression head
     ptm_state = torch.load(HEADS_DIR / "ptm.pt", map_location=device)
     emb_dim   = ptm_state["layers.0.weight"].shape[1]
     ptm = PTMHead(emb_dim)

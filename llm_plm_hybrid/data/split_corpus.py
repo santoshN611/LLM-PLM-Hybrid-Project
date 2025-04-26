@@ -1,10 +1,8 @@
-#!/usr/bin/env python3
 import os
 import pandas as pd
 import numpy as np
 from pathlib import Path
 
-# Ensure the data/ directory exists
 data_dir = Path(__file__).resolve().parent
 os.makedirs(data_dir, exist_ok=True)
 

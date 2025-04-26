@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import csv
 import json
 import requests
@@ -9,7 +8,7 @@ from tqdm import tqdm
 # UniProt REST endpoint
 ENTRY_URL = "https://rest.uniprot.org/uniprotkb/{acc}.json"
 
-# ── Expanded question templates ──────────────────────────────────────
+# variant templates
 EXISTENCE_TEMPLATES = [
     "What is the existence level of {acc}?",
     "What evidence supports the existence of {acc}?",

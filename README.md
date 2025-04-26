@@ -53,27 +53,26 @@ LLM-PLM-Hybrid-Project/
 1. **Clone the repository**
 
    ```bash
-   git clone <repo-url> LLM-PLM-Hybrid-Project
+   git clone https://github.com/santoshN611/LLM-PLM-Hybrid-Project.git
    cd LLM-PLM-Hybrid-Project
    ```
 
-2. **Create a Python environment** (recommended):
+<!-- 2. **Create a Python environment** (recommended):
 
    ```bash
    python3 -m venv venv
    source venv/bin/activate
-   ```
+   ``` -->
 
-3. **Install dependencies**:
+2. **Install dependencies**:
 
    ```bash
-   pip install --upgrade pip
    pip install -r requirements.txt
    ```
 
-4. **System prerequisites**:
+3. **System prerequisites**:
 
-   - Python 3.8+
+   <!-- - Python 3.8+ -->
    - CUDA toolkit (if you plan to use GPU for ESM-2 and BioBERT)
    - FAISS (if not installed via pip, see [FAISS installation docs](https://github.com/facebookresearch/faiss))
 

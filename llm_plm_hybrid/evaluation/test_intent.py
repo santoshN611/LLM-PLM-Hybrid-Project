@@ -1,10 +1,8 @@
-#!/usr/bin/env python3
 import csv
 from llm_plm_hybrid.qa.rag_pipeline import parse_question
 
 
-# 1) A small set of hand‐labeled intent examples
-#    task = 'protein_existence' or 'ptm_count'
+# random questions to test how well the pipeline parses intent
 test_data = [
     ("What is the protein existence level of lactase?",          "protein_existence"),
     ("How many PTM sites does P09812 have?",                     "ptm_count"),
@@ -18,7 +16,7 @@ test_data = [
     ("Count the post-translational modifications on YP_009724390.", "ptm_count"),
 ]
 
-# 2) Run parse_question() on each and compare
+# parse questions
 correct = 0
 results = []
 
@@ -30,7 +28,7 @@ for q, true_label in test_data:
     if is_correct:
         correct += 1
 
-# 3) Print a simple report
+# results
 total = len(test_data)
 acc = correct / total * 100
 print(f"Intent classification accuracy: {correct}/{total} = {acc:.1f}%\n")
@@ -41,7 +39,7 @@ for q, true, pred, ok in results:
         print(f" • Q: {q!r}")
         print(f"   – true: {true},  pred: {pred}\n")
 
-# 4) (Optional) write to CSV for inspection
+# 4) write to csv
 with open("intent_test_results.csv", "w", newline="") as f:
     writer = csv.writer(f)
     writer.writerow(["question","true_intent","predicted_intent","correct"])

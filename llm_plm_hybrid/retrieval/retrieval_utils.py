@@ -5,12 +5,9 @@ import faiss
 from pathlib import Path
 import requests
 
-# Base directory of the package
 base_dir = Path(__file__).resolve().parent.parent
-# Embeddings directory under the new schema
 emb_dir  = base_dir / "embeddings"
 
-# Paths to index and metadata files
 INDEX_PATH = emb_dir / "classification_train.index"
 META_PATH  = emb_dir / "classification_train.meta.npy"
 
@@ -22,7 +19,7 @@ def build_index(
     data = np.load(str(emb_file), allow_pickle=True)
     X = data['X']
 
-    # — FORCE to 2D —
+    # FORCE to 2D for proper shape
     X = np.squeeze(X)
     if X.ndim > 2:
         n = X.shape[0]
@@ -47,20 +44,13 @@ def build_index(
         print(f"⚠️ [build_index] Warning: no 'meta' array found in {emb_file}")
 
 def load_index(idx_file=INDEX_PATH, meta_file=META_PATH):
-    # idx_path  = str(idx_file)
-    # meta_path = str(meta_file)
-    # print(f"🔍 [load_index] Loading index from {idx_file}")
-    # index = faiss.read_index(str(idx_file))
-    # # npz_file = emb_dir / "classification_train.npz"
-    # meta  = np.load(meta_file, allow_pickle=True)
-    # print(f"✅ [load_index] Loaded {len(meta)} accessions from {meta_file}")
-    # return index, meta
+    
     idx_path  = str(idx_file)
     meta_path = str(meta_file)
     print(f"🔍 [load_index] Loading index from {idx_path}")
     index = faiss.read_index(idx_path)
 
-    # Fallback if meta file missing
+    # if meta file missing
     if not meta_file.exists():
         npz_file = emb_dir / "classification_train.npz"
         print(f"⚠️ [load_index] Metadata file not found; loading 'meta' from {npz_file}")
@@ -104,7 +94,6 @@ def build_context_block(accessions):
     return context
 
 if __name__ == "__main__":
-    # Default entry point
     print("🚀 Running build_index via retrieval_utils.py")
     build_index(
         # emb_file='embeddings/classification_train.npz',

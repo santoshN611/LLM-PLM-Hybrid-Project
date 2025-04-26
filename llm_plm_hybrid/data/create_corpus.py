@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 create_corpus.py
 
@@ -14,7 +13,7 @@ import requests, csv, time
 from requests.utils import parse_header_links
 from pathlib import Path
 
-# ── Map UniProt text to numeric existence levels ─────────────────────────────
+# existence level map to human language
 PE_MAP = {
     "Evidence at protein level":    1,
     "Evidence at transcript level": 2,
@@ -23,7 +22,7 @@ PE_MAP = {
     "Uncertain":                    5,
 }
 
-# ── STREAM mode: TSV dump ───────────────────────────────────────────────────
+# STREAM mode first (more efficient than paging, but tends to fail)
 STREAM_URL     = "https://rest.uniprot.org/uniprotkb/stream"
 STREAM_FIELDS  = ["accession","sequence","protein_existence","ft_mod_res"]
 STREAM_HEADERS = {
@@ -56,7 +55,7 @@ def stream_all_uniprot():
                 "ft_mod_res":        cols[idx["ft_mod_res"]],
             }
 
-# ── FALLBACK: JSON search w/ pagination ─────────────────────────────────────
+# SEARCH pagination
 SEARCH_URL     = "https://rest.uniprot.org/uniprotkb/search"
 SEARCH_HEADERS = {"User-Agent": "Mozilla/5.0"}
 
@@ -107,7 +106,6 @@ def parse_existence_level(pe_txt):
     return PE_MAP.get(pe_txt, 0)
 
 def main():
-    # ensure output directory
     data_dir = Path(__file__).resolve().parent
     os.makedirs(data_dir, exist_ok=True)
 

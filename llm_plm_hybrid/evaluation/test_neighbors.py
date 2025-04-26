@@ -1,13 +1,10 @@
-#!/usr/bin/env python3
 import numpy as np
 import pandas as pd
 import faiss
 import torch
 from pathlib import Path
 
-# -----------------------------------------------------------------------------
-# 1) Setup ESM-2 embedder (same as in generate_embeddings.py)
-# -----------------------------------------------------------------------------
+# esm2
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 esm_model, alphabet = torch.hub.load(
     "facebookresearch/esm:main",
@@ -46,39 +43,34 @@ def embed_sequence(seq: str) -> np.ndarray:
                     raise
     return np.mean(all_embs, axis=0)
 
-# -----------------------------------------------------------------------------
-# 2) Load your saved embeddings + metadata
-# -----------------------------------------------------------------------------
+# load embeddings and metadata
 emb_dir = Path(__file__).resolve().parent.parent / "embeddings"
 data    = np.load(emb_dir / "classification_train.npz", allow_pickle=True)
-X = np.squeeze(data["X"])   # shape (N, emb_dim)
-meta = data["meta"]         # list of accessions
+X = np.squeeze(data["X"])
+meta = data["meta"]
 
 # Normalize once for cosine sim
 Xf = X.astype("float32")
 faiss.normalize_L2(Xf)
 
-# -----------------------------------------------------------------------------
-# 3) Build FAISS index in memory
-# -----------------------------------------------------------------------------
+# build faiss
 index = faiss.IndexFlatIP(Xf.shape[1])
 index.add(Xf)
 print(f"✅ Built FAISS index with {Xf.shape[0]} vectors of dim {Xf.shape[1]}")
 
-# -----------------------------------------------------------------------------
-# 4) Load sequences from CSV for lookup
-# -----------------------------------------------------------------------------
+# load seqs
 data_dir = Path(__file__).resolve().parent.parent / "data"
 df       = pd.read_csv(data_dir / "classification_train.csv")
 seq_map = df.set_index("accession")["sequence"].to_dict()
 
-# -----------------------------------------------------------------------------
-# 5) Define & run your queries
-# -----------------------------------------------------------------------------
+# run queries
 queries = [
     "MVHFAELVK",
     "ACDEFGHIKL",
-    "MLLTEQFK"      # feel free to add more sequences here!
+    "MLLTEQFK",
+    "MPLGTSHYQKVAW",
+    "GQYELMNRFSAWKPHTVDLIVPEQMAMTRHGLYNKFDSPLRWKVCQGASFLPYTSA",
+    "MVKTYGLRSIDPNQTDLWFVIPAGHRCLEMKSQHTPDYFLNEGRVAKILPHSMTQEDCPIAGWYRNLFDQTKHSRVGMEPLWYFIDSKLQMVNRAGHPDETLYCSQLVFAPTRNGHMWFSDKLVYPEQRTSLNMCGPDKAQWFLHISTYR"
 ]
 
 print("\n🔍 Nearest neighbors for each query:\n")

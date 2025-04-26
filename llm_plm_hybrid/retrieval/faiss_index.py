@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import numpy as np
 import faiss
 from pathlib import Path
@@ -12,7 +11,7 @@ def build_faiss_index():
     data = np.load(emb_file, allow_pickle=True)
     X = data["X"]
 
-    # Squeeze out any singleton middle dimension if present
+    # reshape
     if X.ndim == 3 and X.shape[1] == 1:
         print(f"ℹ️ Squeezing singleton dimension: {X.shape} →", end=" ")
         X = X.squeeze(1)

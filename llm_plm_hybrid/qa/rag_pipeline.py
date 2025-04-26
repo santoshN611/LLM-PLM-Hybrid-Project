@@ -7,23 +7,23 @@ import spacy
 from transformers import BertTokenizerFast, BertForSequenceClassification
 from pathlib import Path
 
-# ── tiny‐heads (PE & PTM predictors) ─────────────────────────────
+# classification and regression pretrained heads
 from llm_plm_hybrid.embeddings.tiny_heads import load_heads
 
-# ── Retrieval functions & TAXON_MAP ──────────────────────────────
+# retrieval funcs
 from llm_plm_hybrid.retrieval.retrieval import search_uniprot_name, fetch_uniprot, TAXON_MAP
 import llm_plm_hybrid.retrieval.retrieval_utils as retrieval_utils
 
-# ── Adapter block & augmented BioBERT ────────────────────────────
+# adapter funcs and augmented biobert
 from llm_plm_hybrid.qa.adapters import BioBERTWithAdapters
 
-# Suppress TensorFlow oneDNN noise
+# get rid of some annoying warnings
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
 print("🚀 Starting RAG pipeline…")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-# ── Intent model (BioBERT) ────────────────────────────────────────
+# load the bert model for intent parsing
 print("📦 Loading BioBERT intent model…")
 tok_intent = BertTokenizerFast.from_pretrained('dmis-lab/biobert-base-cased-v1.1')
 tok_intent.model_max_length = 128
@@ -33,23 +33,23 @@ mdl_intent = BertForSequenceClassification.from_pretrained(
 ).to(DEVICE).eval()
 print("✅ Intent model ready")
 
-# ── NER (SciSpaCy) ───────────────────────────────────────────────
+# named entitiy recognition model
 print("📦 Loading SciSpaCy NER model…")
 nlp = spacy.load("en_ner_bc5cdr_md")
 print("✅ NER ready")
 
-# ── tiny‐heads (PE & PTM predictors) ─────────────────────────────
+# loading pretrained heads
 print("📦 Loading tiny-heads…")
 pe_head, ptm_head = load_heads(DEVICE)
 print("✅ tiny-heads loaded")
 
-# ── Adapter-augmented BioBERT for QA ─────────────────────────────
+# loading adapters
 print("📦 Loading BioBERT+Adapters for QA…")
 tok_qa = BertTokenizerFast.from_pretrained('dmis-lab/biobert-base-cased-v1.1')
 model_qa = BioBERTWithAdapters().to(DEVICE).train()
 print("✅ QA model ready")
 
-# ── ESM-2 embedder (via torch.hub) ────────────────────────────────
+# esm2
 print("📦 Loading ESM-2 via torch.hub…")
 esm_model, alphabet = torch.hub.load(
     "facebookresearch/esm:main", "esm2_t6_8M_UR50D"
@@ -58,7 +58,7 @@ esm_model.eval().to(DEVICE)
 batch_converter = alphabet.get_batch_converter()
 print(f"✅ ESM-2 ready on {DEVICE}")
 
-# ── FAISS index + metadata ───────────────────────────────────────
+# faiss
 base    = Path(__file__).resolve().parent.parent
 emb_dir = base / "embeddings"
 index, meta = retrieval_utils.load_index(
@@ -91,17 +91,17 @@ def parse_question(q: str):
         logits = mdl_intent(**inp).logits
         task = 'protein_existence' if logits.argmax(-1).item() == 0 else 'ptm_count'
 
-    # 2) accession?
+    # 2) accession
     acc = next((
         t.upper() for t in re.split(r'\W+', q)
         if re.fullmatch(r'(?:[OPQ]\d[A-Z0-9]{3}\d|[A-NR-Z]\d[A-Z0-9]{3}\d)', t)
     ), None)
 
-    # 3) raw sequence?
+    # 3) raw sequence
     mseq = re.search(r'([ACDEFGHIKLMNPQRSTVWY]{4,})', q.replace(' ', ''))
     raw = mseq.group(1).upper() if mseq else None
 
-    # 4) organism?
+    # 4) organism
     org = next((tid for name, tid in TAXON_MAP.items() if name in low), None)
 
     # 5) name via NER or heuristics
@@ -148,7 +148,7 @@ def embed_sequence(seq: str) -> torch.Tensor:
 def answer(q: str) -> str:
     info = parse_question(q)
 
-    # ── (A) Raw-sequence queries → adapter QA w/ FAISS context ─────────
+    # if raw_seq, use esm2 embeddings
     if info['raw_seq']:
         emb = embed_sequence(info['raw_seq']).cpu().numpy()
         nbrs = retrieval_utils.search_neighbors(emb, k=5)
@@ -162,7 +162,7 @@ def answer(q: str) -> str:
         else:
             return f"🤖 Predicted PTM count class **{pred}**."
 
-    # ── (B) Name lookup → accession → factual UniProt JSON fetch ───────
+    # uniprot lookup
     if info['name'] and not info['accession']:
         info['accession'] = search_uniprot_name(info['name'], info['organism'])
 

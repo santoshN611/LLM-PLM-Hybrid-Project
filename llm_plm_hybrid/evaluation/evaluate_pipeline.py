@@ -7,18 +7,18 @@ from llm_plm_hybrid.retrieval.retrieval_utils import load_index, search_neighbor
 from pathlib import Path
 from tqdm import tqdm
 
-# ── 1) Load test corpus ───────────────────────────────────────────
+# load test corpus
 TEST_JSONL = Path(__file__).resolve().parent / "test_protein_qa.jsonl"
 entries    = [json.loads(line) for line in open(TEST_JSONL)]
 questions   = [e["question"] for e in entries]
 gold_answers= [e["answer"]   for e in entries]
 ids         = [e["id"]       for e in entries]
 
-# ── 2) Run the pipeline ────────────────────────────────────────────
+# test on the pipeline
 pred_answers    = []
 retrieved_ranks = []
 
-# Load FAISS index + metadata (index_file, meta_file)
+# load faiss and metadata
 emb_dir = Path(__file__).resolve().parent.parent / "embeddings"
 index, meta = load_index(
     emb_dir / "classification_train.index",
@@ -26,10 +26,10 @@ index, meta = load_index(
 )
 
 for q, gold in zip(questions, gold_answers):
-    # 2a) QA output
+    
     pred_answers.append(answer(q))
 
-    # 2b) If there's a UniProt accession in the question, compute its retrieval rank
+    #If there's a UniProt accession in the question, compute its retrieval rank
     import re
     m = re.search(r'\b(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9][A-Z0-9]{3}[0-9])\b', q)
     if m:
@@ -51,7 +51,7 @@ for q, gold in zip(questions, gold_answers):
         else:
             retrieved_ranks.append(None)
 
-# ── 3) Generation metrics ──────────────────────────────────────────
+# metrics for response generation
 bleu   = load_metric("bleu").compute(predictions=pred_answers, references=[[g] for g in gold_answers])["bleu"]
 rouge  = load_metric("rouge").compute(predictions=pred_answers, references=[[g] for g in gold_answers])
 meteor = load_metric("meteor").compute(predictions=pred_answers, references=[[g] for g in gold_answers])["meteor"]
@@ -62,15 +62,15 @@ print(f"ROUGE: {rouge}")
 print(f"METEOR: {meteor:.3f}")
 print(f"BERTScore (mean F1): {np.mean(bertsc):.3f}")
 
-# ── 4) Retrieval metrics ───────────────────────────────────────────
+# metrics for retrieval
 valid = [r for r in retrieved_ranks if r is not None]
 prec1 = sum(1 for r in valid if r == 1) / len(valid) if valid else 0.0
-mrr   = np.mean([1.0/r for r in valid])           if valid else 0.0
+mrr   = np.mean([1.0/r for r in valid]) if valid else 0.0
 
 print(f"Precision@1: {prec1:.3f}")
 print(f"MRR: {mrr:.3f}")
 
-# ── 5) Save detailed results ───────────────────────────────────────
+# saving rersults
 out_csv = Path("eval_results.csv")
 with open(out_csv, "w", newline="") as f:
     writer = csv.writer(f)
