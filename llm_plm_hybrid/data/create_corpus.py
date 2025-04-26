@@ -136,7 +136,7 @@ def main():
         print(f"❌ STREAM failed ({e}), falling back to JSON…")
 
     seen = set(); count = 0
-    for rec in search_paginated_uniprot(max_pages=100):
+    for rec in search_paginated_uniprot(max_pages=5):
         acc = rec["accession"]
         if acc in seen: continue
         seen.add(acc)

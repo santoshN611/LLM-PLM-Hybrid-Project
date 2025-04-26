@@ -1,11 +1,15 @@
 import json
 import csv
 import numpy as np
-from evaluate import load as load_metric
-from llm_plm_hybrid.qa.rag_pipeline         import answer
+# from evaluate import load as load_metric
+from llm_plm_hybrid.qa.rag_pipeline import answer
 from llm_plm_hybrid.retrieval.retrieval_utils import load_index, search_neighbors
 from pathlib import Path
 from tqdm import tqdm
+import nltk
+nltk.download('punkt', quiet=True)
+
+from evaluate import load as load_metric
 
 # load test corpus
 TEST_JSONL = Path(__file__).resolve().parent / "test_protein_qa.jsonl"

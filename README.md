@@ -57,20 +57,22 @@ LLM-PLM-Hybrid-Project/
    cd LLM-PLM-Hybrid-Project
    ```
 
-<!-- 2. **Create a Python environment** (recommended):
+2. **Create a Python environment** (recommended):
 
    ```bash
    python3 -m venv venv
    source venv/bin/activate
-   ``` -->
+   ```
 
-2. **Install dependencies**:
+   - This avoids any package/dependency problems.
+
+3. **Install dependencies**:
 
    ```bash
    pip install -r requirements.txt
    ```
 
-3. **System prerequisites**:
+4. **System prerequisites**:
 
    <!-- - Python 3.8+ -->
    - CUDA toolkit (if you plan to use GPU for ESM-2 and BioBERT)
