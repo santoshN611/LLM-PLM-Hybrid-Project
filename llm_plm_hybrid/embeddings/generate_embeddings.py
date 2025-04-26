@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 import warnings
 
@@ -12,12 +11,11 @@ from tqdm import tqdm
 
 print("🔄 Starting embedding generation…")
 
-# ── Device setup ────────────────────────────────────────────────
 USE_CUDA = torch.cuda.is_available()
 print(f"⚙️ CUDA available? {'Yes' if USE_CUDA else 'No'}")
 DEVICE = "cuda" if USE_CUDA else "cpu"
 
-# ── Load two independent ESM-2 instances ─────────────────────────
+# in case of GPU out of memory problems
 print("📦 Loading ESM-2 for GPU…")
 esm_gpu, alphabet = torch.hub.load(
     "facebookresearch/esm:main", "esm2_t6_8M_UR50D"
@@ -31,12 +29,12 @@ esm_cpu = esm_cpu.eval().to("cpu")   # separate copy for CPU
 batch_converter = alphabet.get_batch_converter()
 print("✅ ESM-2 ready on both devices")
 
-# ── Chunking parameters ────────────────────────────────────────
+# params
 MAX_SEQ_LEN = 2500   # large max to handle long seqs
 CHUNK_STEP  = 1022
 REPORT_EVERY = 1000
 
-# ── Paths ───────────────────────────────────────────────────────
+# paths
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 EMB_DIR  = Path(__file__).resolve().parent
 VIS_DIR  = EMB_DIR.parent / "visualizations"
@@ -101,7 +99,6 @@ def process_split(split_name: str):
     print(f"✅ Saved embeddings+meta → {out_path} (shape={X.shape})")
 
 if __name__ == "__main__":
-    # ── Process all splits ────────────────────────────────────────
     splits = [
         "classification_train", "classification_val", "classification_test",
         "regression_train",     "regression_val",     "regression_test"
@@ -111,7 +108,7 @@ if __name__ == "__main__":
 
     print("\n🎉 All embeddings generated!")
 
-    # ── Labeled UMAP on train split ──────────────────────────────
+    # UMAP
     print("🗺️ Computing UMAP on classification_train embeddings…")
     train_npz = EMB_DIR / "classification_train.npz"
     data = np.load(train_npz, allow_pickle=True)
