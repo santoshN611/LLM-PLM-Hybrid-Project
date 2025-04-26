@@ -1,0 +1,14 @@
+numpy
+pandas
+tqdm
+torch                            # PyTorch core library
+transformers[torch]              # Hugging Face Transformers (PyTorch)
+spacy                            # NLP
+scispacy                         # SciSpaCy tooling
+en-ner-bc5cdr-md @ https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.3.0/en_ner_bc5cdr_md-0.3.0.tar.gz
+requests                         # HTTP for UniProt API
+faiss-cpu                        # FAISS similarity search (CPU)
+evaluate                         # Hugging Face evaluation metrics
+umap-learn                       # UMAP reduction
+scikit-learn                     # t-SNE, logistic regression, etc.
+matplotlib                       # plotting
