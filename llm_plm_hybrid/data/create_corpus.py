@@ -138,7 +138,7 @@ def main():
 
     seen = set(); count = 0
     max_pages = 1000
-    for rec in tqdm(search_paginated_uniprot(max_pages=max_pages), total=max_pages, desc="Gathering Data"):
+    for rec in search_paginated_uniprot(max_pages=max_pages):
         acc = rec["accession"]
         if acc in seen: continue
         seen.add(acc)
