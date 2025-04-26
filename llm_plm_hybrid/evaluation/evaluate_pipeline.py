@@ -29,7 +29,11 @@ index, meta = load_index(
     emb_dir / "classification_train.meta.npy"
 )
 
-for q, gold in zip(questions, gold_answers):
+for q, gold in tqdm(
+    zip(questions, gold_answers),
+    total=len(questions),
+    desc="Evaluating Q&A",
+    ):
     
     pred_answers.append(answer(q))
 
