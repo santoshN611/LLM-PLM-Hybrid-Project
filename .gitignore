@@ -7,3 +7,4 @@ embeddings/*.npy
 */__pycache__/*
 *.pyc
 *.cpython-*
+venv
