@@ -1,5 +1,6 @@
 *.csv
 *.npz
+/llm_plm_hybrid/embeddings/classification_train.index
 embeddings/*.index
 embeddings/*.npy
 .venv
