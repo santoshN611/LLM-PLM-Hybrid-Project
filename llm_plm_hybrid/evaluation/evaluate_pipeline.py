@@ -8,12 +8,20 @@ from pathlib import Path
 from tqdm import tqdm
 import nltk
 nltk.download('punkt', quiet=True)
+from llm_plm_hybrid.qa.rag_pipeline import ACC_RE
 
 from evaluate import load as load_metric
+import random
+import re
+from sklearn.metrics import accuracy_score, mean_absolute_error
+from scipy.stats import spearmanr
+
 
 # load test corpus
 TEST_JSONL = Path(__file__).resolve().parent / "test_protein_qa.jsonl"
-entries    = [json.loads(line) for line in open(TEST_JSONL)]
+all_entries    = [json.loads(line) for line in open(TEST_JSONL)]
+random.seed(42)
+entries = random.sample(all_entries, 1000)
  # only doing small subset due to time limiations
 questions   = [e["question"] for e in entries]
 gold_answers= [e["answer"]   for e in entries]
@@ -30,24 +38,44 @@ index, meta = load_index(
     emb_dir / "classification_train.meta.npy"
 )
 
-for q, gold in tqdm(
-    zip(questions, gold_answers),
-    total=len(questions),
-    desc="Evaluating Q&A",
-    ):
-    
-    pred_answers.append(answer(q))
+train_npz = np.load(emb_dir / "classification_train.npz", allow_pickle=True)
+accs      = train_npz["meta"]
+emb_X     = train_npz["X"].squeeze(1).astype("float32")
+idx_map   = {a: i for i, a in enumerate(accs)}
+
+pe_preds,  pe_truth  = [], []
+ptm_preds, ptm_truth = [], []
+
+for entry in tqdm(entries, desc="Evaluating Q&A"):
+    q    = entry["question"]
+    gold = entry["answer"]
+    pred = answer(q)
+    pred_answers.append(pred)
+
+    # ----------- ML-specific scoring -----------
+    if "seq" in entry.get("label", ""):
+        # extract integers from the model's natural-language answer
+        import re
+        num = re.findall(r'\d+', pred)
+        if "pe" in entry["label"]:
+            if num:
+                pe_preds.append(int(num[0]))
+                pe_truth.append(int(gold))
+        else:   # ptm sequence
+            if num:
+                ptm_preds.append(int(num[0]))
+                ptm_truth.append(int(gold))
 
     #If there's a UniProt accession in the question, compute its retrieval rank
-    import re
-    m = re.search(r'\b(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9][A-Z0-9]{3}[0-9])\b', q)
+    #m = re.search(r'\b(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9][A-Z0-9]{3}[0-9])\b', q)
+    m = ACC_RE.search(q)
     if m:
         acc = m.group(0)
         # Build a map accession→row in the embeddings
-        data_npz = emb_dir / "classification_train.npz"
-        data = np.load(data_npz, allow_pickle=True)
-        accs = data["meta"]
-        idx_map = {a:i for i,a in enumerate(accs)}
+        # data_npz = emb_dir / "classification_train.npz"
+        # data = np.load(data_npz, allow_pickle=True)
+        # accs = data["meta"]
+        # idx_map = {a:i for i,a in enumerate(accs)}
         if acc in idx_map:
             vec = data["X"].squeeze(1)[ idx_map[acc] ].astype("float32").reshape(1, -1)
             # Search top-10
@@ -59,6 +87,8 @@ for q, gold in tqdm(
                 retrieved_ranks.append(None)
         else:
             retrieved_ranks.append(None)
+    else:
+        retrieved_ranks.append(None)
 
 # metrics for response generation
 bleu   = load_metric("bleu").compute(predictions=pred_answers, references=[[g] for g in gold_answers])["bleu"]
@@ -78,6 +108,14 @@ mrr   = np.mean([1.0/r for r in valid]) if valid else 0.0
 
 print(f"Precision@1: {prec1:.3f}")
 print(f"MRR: {mrr:.3f}")
+
+if pe_preds:
+    pe_acc = accuracy_score(pe_truth, pe_preds)
+    print(f"PE Accuracy (seq-only): {pe_acc:.3f}")
+if ptm_preds:
+    ptm_mae = mean_absolute_error(ptm_truth, ptm_preds)
+    rho, _  = spearmanr(ptm_truth, ptm_preds)
+    print(f"PTM  MAE (seq-only): {ptm_mae:.2f} | Spearman ρ: {rho:.3f}")
 
 # saving rersults
 out_csv = Path("eval_results.csv")

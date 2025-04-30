@@ -35,6 +35,18 @@ PTM_TEMPLATES = [
     "List how many PTM annotations are present for {acc}."
 ]
 
+SEQ_EXISTENCE_TEMPLATES = [
+    "Predict the existence level for this protein: {seq}",
+    "What UniProt evidence level would you assign to the sequence {seq}?",
+    "Estimate the protein-existence class of {seq}.",
+]
+
+SEQ_PTM_TEMPLATES = [
+    "Predict how many PTM sites the sequence {seq} might have.",
+    "Give an estimated PTM site count for {seq}.",
+    "How many 'Modified residue' features do you expect in {seq}?",
+]
+
 def load_accessions(*csv_paths: str) -> List[str]:
     """Read test‐split CSVs and return sorted unique accessions."""
     acs: Set[str] = set()
@@ -76,9 +88,41 @@ def build_corpus(accessions: List[str], out_path: str):
     Path(out_path).parent.mkdir(exist_ok=True)
     idx = 1
     with open(out_path, "w", encoding="utf-8") as fout:
+        csv_map = {}
+        for csv_name in ("classification_test.csv", "regression_test.csv"):
+            with open(Path(__file__).resolve().parent.parent / "data" / csv_name) as f:
+                rdr = csv.DictReader(f)
+                for row in rdr:
+                    acc = row["accession"]
+                    seq = row["sequence"]
+                    if csv_name.startswith("classification"):
+                        csv_map.setdefault(acc, {})["pe"] = int(row["existence_level"])
+                    else:
+                        csv_map.setdefault(acc, {})["ptm"] = int(row["ptm_site_count"])
+                    csv_map[acc]["seq"] = seq
         for acc in tqdm(accessions[:1000]): # only 1000 due to time limitations
             data = fetch_uniprot_json(acc)
             info = parse_entry(data)
+
+            seq      = csv_map[acc]["seq"]
+            true_pe  = csv_map[acc]["pe"]   # integer 1-5
+            true_ptm = csv_map[acc]["ptm"]  # integer
+
+            # PE sequence questions
+            for tmpl in SEQ_EXISTENCE_TEMPLATES:
+                q = tmpl.format(seq=seq)
+                a = str(true_pe)        # store as string for uniformity
+                fout.write(json.dumps({"id": idx, "question": q,
+                                    "answer": a, "label": "pe_seq"}) + "\n")
+                idx += 1
+
+            # PTM sequence questions
+            for tmpl in SEQ_PTM_TEMPLATES:
+                q = tmpl.format(seq=seq)
+                a = str(true_ptm)
+                fout.write(json.dumps({"id": idx, "question": q,
+                                    "answer": a, "label": "ptm_seq"}) + "\n")
+                idx += 1
 
             # existence‐level questions
             for tmpl in EXISTENCE_TEMPLATES:

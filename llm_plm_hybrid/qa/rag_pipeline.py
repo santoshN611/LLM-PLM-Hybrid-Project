@@ -17,6 +17,14 @@ import llm_plm_hybrid.retrieval.retrieval_utils as retrieval_utils
 # adapter funcs and augmented biobert
 from llm_plm_hybrid.qa.adapters import BioBERTWithAdapters
 
+ACC_RE = re.compile(
+    r'\b(?:'                 # word-boundary, non-capturing group
+    r'[A-Z][0-9][A-Z0-9]{3}[0-9]'   # length-6
+    r'|'                             #   or
+    r'[A-Z][0-9][A-Z0-9]{8}'         # length-10
+    r')\b',
+    re.IGNORECASE
+)
 # get rid of some annoying warnings
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
 
@@ -92,10 +100,12 @@ def parse_question(q: str):
         task = 'protein_existence' if logits.argmax(-1).item() == 0 else 'ptm_count'
 
     # 2) accession
-    acc = next((
-        t.upper() for t in re.split(r'\W+', q)
-        if re.fullmatch(r'(?:[OPQ]\d[A-Z0-9]{3}\d|[A-NR-Z]\d[A-Z0-9]{3}\d)', t)
-    ), None)
+    # acc = next((
+    #     t.upper() for t in re.split(r'\W+', q)
+    #     if re.fullmatch(r'(?:[OPQ]\d[A-Z0-9]{3}\d|[A-NR-Z]\d[A-Z0-9]{3}\d)', t)
+    # ), None)
+    m   = ACC_RE.search(q)
+    acc = m.group(0).upper() if m else None
 
     # 3) raw sequence
     mseq = re.search(r'([ACDEFGHIKLMNPQRSTVWY]{4,})', q.replace(' ', ''))
