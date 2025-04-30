@@ -1,155 +1,118 @@
-import csv
-import json
-import requests
+"""
+build_test_qa_corpus.py   (sequence-only version)
+
+Creates test_protein_qa.jsonl that contains:
+    • id
+    • question            (only sequence-based queries)
+    • gold_num            (stringified numeric answer)
+    • gold_text           (canonical natural-language answer)
+    • label               ("ptm_seq" | "pe_seq")
+"""
+
+import csv, json, requests
 from pathlib import Path
-from typing import List, Set
-from tqdm import tqdm
+from typing  import List, Set
+from tqdm    import tqdm
 
-# UniProt REST endpoint
 ENTRY_URL = "https://rest.uniprot.org/uniprotkb/{acc}.json"
-
-# variant templates
-EXISTENCE_TEMPLATES = [
-    "What is the existence level of {acc}?",
-    "What evidence supports the existence of {acc}?",
-    "Give me the protein existence classification for {acc}.",
-    "According to UniProt, at which evidence level does {acc} stand?",
-    "Which protein-existence category does {acc} fall into?",
-    "How is {acc}'s existence annotated in UniProt?",
-    "UniProt reports what level of existence for {acc}?",
-    "On what basis is the existence of {acc} classified?",
-    "State the UniProt protein‐existence level for {acc}.",
-    "By what evidence level is {acc} marked in UniProt?"
-]
-
-PTM_TEMPLATES = [
-    "How many PTM sites for {acc}?",
-    "How many post-translational modification sites does {acc} have?",
-    "Number of modified residues reported for {acc}?",
-    "What is the total count of PTM annotations in {acc}?",
-    "UniProt lists how many modified residues for {acc}?",
-    "How many ‘Modified residue’ features appear in {acc}?",
-    "Tell me the PTM site count for {acc}.",
-    "What’s the number of PTM sites annotated on {acc}?",
-    "Provide the count of post-translational modifications in {acc}.",
-    "List how many PTM annotations are present for {acc}."
-]
 
 SEQ_EXISTENCE_TEMPLATES = [
     "Predict the existence level for this protein: {seq}",
     "What UniProt evidence level would you assign to the sequence {seq}?",
     "Estimate the protein-existence class of {seq}.",
+    "Give the probable existence level for {seq}.",
+    "Which UniProt PE tier best fits {seq}?"
 ]
 
 SEQ_PTM_TEMPLATES = [
     "Predict how many PTM sites the sequence {seq} might have.",
     "Give an estimated PTM site count for {seq}.",
     "How many 'Modified residue' features do you expect in {seq}?",
+    "Roughly how many PTM sites are present in {seq}?",
+    "Estimate the total PTM annotations for {seq}."
 ]
 
+# ───────────────────────── helpers ──────────────────────────
 def load_accessions(*csv_paths: str) -> List[str]:
-    """Read test‐split CSVs and return sorted unique accessions."""
-    acs: Set[str] = set()
-    for path in csv_paths:
-        with open(path) as f:
-            for row in csv.DictReader(f):
-                acs.add(row["accession"])
-    return sorted(acs)
+    seen: Set[str] = set()
+    for p in csv_paths:
+        with open(p) as f:
+            for r in csv.DictReader(f):
+                seen.add(r["accession"])
+    return sorted(seen)
+
 
 def fetch_uniprot_json(acc: str) -> dict:
-    """Fetch full UniProt JSON for accession `acc`."""
-    url = ENTRY_URL.format(acc=acc)
-    resp = requests.get(url, timeout=10)
-    resp.raise_for_status()
-    return resp.json()
+    r = requests.get(ENTRY_URL.format(acc=acc), timeout=10)
+    r.raise_for_status()
+    return r.json()
 
-def parse_entry(jsond: dict) -> dict:
-    """
-    Extract from JSON:
-      - existence: full 'proteinExistence' string
-      - ptm_count: count of features type 'Modified residue'
-    """
-    pe = jsond.get("proteinExistence", "")
+
+def parse_entry(js: dict) -> dict:
+    pe = js.get("proteinExistence", "")
     if isinstance(pe, dict):
         pe = pe.get("value", pe.get("text", ""))
-    existence = pe.strip() or "Unknown"
-    feats = jsond.get("features", [])
-    ptm_count = sum(
-        1 for f in feats
-        if f.get("type", "").lower() == "modified residue"
-    )
-    return {"existence": existence, "ptm_count": ptm_count}
+    feats = js.get("features", [])
+    ptm   = sum(1 for f in feats if f.get("type", "").lower() == "modified residue")
+    return {"existence": pe.strip() or "Unknown", "ptm_count": ptm}
 
-def build_corpus(accessions: List[str], out_path: str):
-    """
-    For each accession, generate paraphrased questions from the templates,
-    fetch & parse UniProt JSON, and write JSONL entries with IDs, questions, and answers.
-    """
-    Path(out_path).parent.mkdir(exist_ok=True)
+
+def build_corpus(accessions: List[str], out_path: Path):
+    out_path.parent.mkdir(exist_ok=True)
     idx = 1
-    with open(out_path, "w", encoding="utf-8") as fout:
+    with out_path.open("w", encoding="utf-8") as fout:
+        # preload sequences & numeric gold from CSVs
         csv_map = {}
-        for csv_name in ("classification_test.csv", "regression_test.csv"):
-            with open(Path(__file__).resolve().parent.parent / "data" / csv_name) as f:
-                rdr = csv.DictReader(f)
-                for row in rdr:
+        data_dir = Path(__file__).resolve().parent.parent / "data"
+        for fname in ("classification_test.csv", "regression_test.csv"):
+            with (data_dir / fname).open() as f:
+                for row in csv.DictReader(f):
                     acc = row["accession"]
-                    seq = row["sequence"]
-                    if csv_name.startswith("classification"):
-                        csv_map.setdefault(acc, {})["pe"] = int(row["existence_level"])
+                    csv_map.setdefault(acc, {})["seq"] = row["sequence"]
+                    if fname.startswith("classification"):
+                        csv_map[acc]["pe"]  = int(row["existence_level"])
                     else:
-                        csv_map.setdefault(acc, {})["ptm"] = int(row["ptm_site_count"])
-                    csv_map[acc]["seq"] = seq
-        for acc in tqdm(accessions[:1000]): # only 1000 due to time limitations
-            data = fetch_uniprot_json(acc)
-            info = parse_entry(data)
+                        csv_map[acc]["ptm"] = int(row["ptm_site_count"])
 
+        for acc in tqdm(accessions):
             seq      = csv_map[acc]["seq"]
-            true_pe  = csv_map[acc]["pe"]   # integer 1-5
-            true_ptm = csv_map[acc]["ptm"]  # integer
+            true_pe  = csv_map[acc]["pe"]
+            true_ptm = csv_map[acc]["ptm"]
 
-            # PE sequence questions
+            # PE-sequence Qs
             for tmpl in SEQ_EXISTENCE_TEMPLATES:
                 q = tmpl.format(seq=seq)
-                a = str(true_pe)        # store as string for uniformity
-                fout.write(json.dumps({"id": idx, "question": q,
-                                    "answer": a, "label": "pe_seq"}) + "\n")
+                num  = str(true_pe)
+                text = f"The predicted UniProt existence level is {num}."
+                fout.write(json.dumps({
+                    "id":        idx,
+                    "question":  q,
+                    "gold_num":  num,
+                    "gold_text": text,
+                    "label":     "pe_seq"
+                }) + "\n")
                 idx += 1
 
-            # PTM sequence questions
+            # PTM-sequence Qs
             for tmpl in SEQ_PTM_TEMPLATES:
-                q = tmpl.format(seq=seq)
-                a = str(true_ptm)
-                fout.write(json.dumps({"id": idx, "question": q,
-                                    "answer": a, "label": "ptm_seq"}) + "\n")
+                q    = tmpl.format(seq=seq)
+                num  = str(true_ptm)
+                text = f"This sequence is predicted to have {num} PTM site" \
+                       f"{'s' if true_ptm!=1 else ''}."
+                fout.write(json.dumps({
+                    "id":        idx,
+                    "question":  q,
+                    "gold_num":  num,
+                    "gold_text": text,
+                    "label":     "ptm_seq"
+                }) + "\n")
                 idx += 1
 
-            # existence‐level questions
-            for tmpl in EXISTENCE_TEMPLATES:
-                q = tmpl.format(acc=acc)
-                a = info["existence"]
-                fout.write(json.dumps({"id": idx, "question": q, "answer": a}) + "\n")
-                idx += 1
+    print(f"✅ Wrote {idx-1} entries ➜ {out_path}")
 
-            # PTM‐count questions
-            for tmpl in PTM_TEMPLATES:
-                q = tmpl.format(acc=acc)
-                a = str(info["ptm_count"])
-                fout.write(json.dumps({"id": idx, "question": q, "answer": a}) + "\n")
-                idx += 1
-
-    print(f"✅ Wrote {idx-1} Q&A entries to {out_path}")
 
 if __name__ == "__main__":
-    # 1) Load all test accessions
     data_dir = Path(__file__).resolve().parent.parent / "data"
-    test_accs = load_accessions(
-        data_dir / "classification_test.csv",
-        data_dir / "regression_test.csv"
-    )
-    print(f"📂 Loaded {len(test_accs)} unique accessions from test splits")
-
-    # 2) Build and save the expanded JSONL corpus
-    out_path = Path(__file__).resolve().parent / "test_protein_qa.jsonl"
-    build_corpus(test_accs, out_path=out_path)
-    print(f"🎉 Created {out_path} successfully!")
+    accs = load_accessions(data_dir/"classification_test.csv",
+                           data_dir/"regression_test.csv")
+    build_corpus(accs, Path(__file__).resolve().parent / "test_protein_qa.jsonl")

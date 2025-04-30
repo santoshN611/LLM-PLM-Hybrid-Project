@@ -1,6 +1,9 @@
 *.csv
 *.npz
 /llm_plm_hybrid/embeddings/classification_train.index
+llm_plm_hybrid/evaluation/val_protein_qa.jsonl
+llm_plm_hybrid/evaluation/test_protein_qa.jsonl
+# llm_plm_hybrid/evaluation/test_protein_qa.jsonl
 embeddings/*.index
 embeddings/*.npy
 .venv

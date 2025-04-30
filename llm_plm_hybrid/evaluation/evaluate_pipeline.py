@@ -1,128 +1,173 @@
-import json
-import csv
-import numpy as np
-# from evaluate import load as load_metric
-from llm_plm_hybrid.qa.rag_pipeline import answer
-from llm_plm_hybrid.retrieval.retrieval_utils import load_index, search_neighbors
-from pathlib import Path
-from tqdm import tqdm
-import nltk
-nltk.download('punkt', quiet=True)
-from llm_plm_hybrid.qa.rag_pipeline import ACC_RE
+import json, csv, random, re, requests, numpy as np
+from collections import Counter
+from pathlib     import Path
+from tqdm        import tqdm
+import time
 
-from evaluate import load as load_metric
-import random
-import re
 from sklearn.metrics import accuracy_score, mean_absolute_error
-from scipy.stats import spearmanr
+from scipy.stats     import spearmanr
+from evaluate        import load as load_metric
+import nltk; nltk.download("punkt", quiet=True)
 
+from llm_plm_hybrid.qa.rag_pipeline               import answer, ACC_RE
+from llm_plm_hybrid.embeddings.generate_embeddings import embed_sequence
+from llm_plm_hybrid.retrieval.retrieval_utils      import load_index, search_neighbors
 
-# load test corpus
-TEST_JSONL = Path(__file__).resolve().parent / "test_protein_qa.jsonl"
-all_entries    = [json.loads(line) for line in open(TEST_JSONL)]
+# ---------- helpers ----------------------------------------------------------
+def is_ptm_seq(e): return e.get("label") == "ptm_seq"
+def is_pe_seq(e):  return e.get("label") == "pe_seq"
+
+SEQ_EXTRACT = re.compile(r"([ACDEFGHIKLMNPQRSTVWY]{6,})")
+INT_RE      = re.compile(r"\d+")
+
+def safe_int(x):            # int or NaN
+    try: return int(x)
+    except Exception: return np.nan
+
+def parse_pe_str(txt):      # extract leading digit from UniProt field
+    if txt is None: return np.nan
+    m = INT_RE.match(str(txt).strip())
+    return int(m.group()) if m else np.nan
+
+# ---------- choose split -----------------------------------------------------
+# SPLIT = "test"
+SPLIT = "val"
+JSONL = Path(__file__).parent / f"{SPLIT}_protein_qa.jsonl"
+
+all_entries = [json.loads(l) for l in JSONL.open()]
+for e in all_entries:                       # backward-compat
+    if "gold_num"  not in e: e["gold_num"]  = e["answer"]
+    if "gold_text" not in e: e["gold_text"] = e["answer"]
+
 random.seed(42)
-entries = random.sample(all_entries, 1000)
- # only doing small subset due to time limiations
-questions   = [e["question"] for e in entries]
-gold_answers= [e["answer"]   for e in entries]
-ids         = [e["id"]       for e in entries]
+entries = random.sample(all_entries, 100)
 
-# test on the pipeline
-pred_answers    = []
-retrieved_ranks = []
+ids, questions, gold_texts, gold_nums = zip(*[
+    (e["id"], e["question"], e["gold_text"], e["gold_num"]) for e in entries
+])
 
-# load faiss and metadata
-emb_dir = Path(__file__).resolve().parent.parent / "embeddings"
-index, meta = load_index(
-    emb_dir / "classification_train.index",
-    emb_dir / "classification_train.meta.npy"
-)
+# ---------- storage ----------------------------------------------------------
+pred_answers, retrieved_ranks = [], []
+mean_ptm_5nn,   maj_pe_5nn    = [], []
+ptm_gold, ptm_pred            = {}, {}
+pe_gold,  pe_pred             = {}, {}
 
-train_npz = np.load(emb_dir / "classification_train.npz", allow_pickle=True)
-accs      = train_npz["meta"]
-emb_X     = train_npz["X"].squeeze(1).astype("float32")
-idx_map   = {a: i for i, a in enumerate(accs)}
+# ---------- retrieval index --------------------------------------------------
+emb_dir  = Path(__file__).parent.parent / "embeddings"
+index, _ = load_index(emb_dir/"classification_train.index",
+                      emb_dir/"classification_train.meta.npy")
+train_npz = np.load(emb_dir/"classification_train.npz", allow_pickle=True)
+accs  = train_npz["meta"];   emb_X = train_npz["X"].squeeze(1).astype("float32")
+idx_map = {a:i for i,a in enumerate(accs)}
 
-pe_preds,  pe_truth  = [], []
-ptm_preds, ptm_truth = [], []
-
-for entry in tqdm(entries, desc="Evaluating Q&A"):
-    q    = entry["question"]
-    gold = entry["answer"]
-    pred = answer(q)
+# ---------- main loop --------------------------------------------------------
+total_response_time = 0.0
+for e in tqdm(entries, desc=f"Evaluating {SPLIT} Q&A"):
+    start = time.time()
+    q, gold_num = e["question"], e["gold_num"]
+    pred   = answer(q)
     pred_answers.append(pred)
 
-    # ----------- ML-specific scoring -----------
-    if "seq" in entry.get("label", ""):
-        # extract integers from the model's natural-language answer
-        import re
-        num = re.findall(r'\d+', pred)
-        if "pe" in entry["label"]:
-            if num:
-                pe_preds.append(int(num[0]))
-                pe_truth.append(int(gold))
-        else:   # ptm sequence
-            if num:
-                ptm_preds.append(int(num[0]))
-                ptm_truth.append(int(gold))
+    if is_ptm_seq(e):
+        ptm_gold[e["id"]] = safe_int(gold_num)
+        m = INT_RE.search(pred); ptm_pred[e["id"]] = safe_int(m.group()) if m else np.nan
+    elif is_pe_seq(e):
+        pe_gold[e["id"]]  = safe_int(gold_num)
+        m = INT_RE.search(pred); pe_pred[e["id"]]  = safe_int(m.group()) if m else np.nan
 
-    #If there's a UniProt accession in the question, compute its retrieval rank
-    #m = re.search(r'\b(?:[OPQ][0-9][A-Z0-9]{3}[0-9]|[A-NR-Z][0-9][A-Z0-9]{3}[0-9])\b', q)
-    m = ACC_RE.search(q)
-    if m:
+    # 5-NN baseline for seq tasks
+    if (is_ptm_seq(e) or is_pe_seq(e)) and (m := SEQ_EXTRACT.search(q)):
+        emb = embed_sequence(m.group(1))
+        nbrs = search_neighbors(emb, k=5)
+        ptm_counts, pe_levels = [], []
+        for acc in nbrs:
+            try:
+                d = requests.get(f"https://rest.uniprot.org/uniprotkb/{acc}.json",
+                                 timeout=10).json()
+                ptm_counts.append(sum(1 for f in d.get("features", [])
+                                      if f.get("type") == "MOD_RES"))
+                pe_levels.append(parse_pe_str(d.get("proteinExistence")))
+            except Exception:
+                continue
+        mean_ptm_5nn.append(np.mean(ptm_counts) if ptm_counts else np.nan)
+        maj_pe_5nn.append(Counter(pe_levels).most_common(1)[0][0]
+                          if pe_levels else np.nan)
+    else:
+        mean_ptm_5nn.append(np.nan); maj_pe_5nn.append(np.nan)
+
+    # retrieval rank (not applicable to pure-sequence corpora, but kept)
+    if (m := ACC_RE.search(q)):
         acc = m.group(0)
-        # Build a map accession→row in the embeddings
-        # data_npz = emb_dir / "classification_train.npz"
-        # data = np.load(data_npz, allow_pickle=True)
-        # accs = data["meta"]
-        # idx_map = {a:i for i,a in enumerate(accs)}
         if acc in idx_map:
-            vec = data["X"].squeeze(1)[ idx_map[acc] ].astype("float32").reshape(1, -1)
-            # Search top-10
-            D, I = index.search(vec, 10)
-            neighbors = I[0].tolist()
-            if idx_map[acc] in neighbors:
-                retrieved_ranks.append(neighbors.index(idx_map[acc]) + 1)
-            else:
-                retrieved_ranks.append(None)
+            _, I = index.search(emb_X[idx_map[acc]].reshape(1,-1), 10)
+            retrieved_ranks.append(I[0].tolist().index(idx_map[acc])+1
+                                    if idx_map[acc] in I[0] else None)
         else:
             retrieved_ranks.append(None)
     else:
         retrieved_ranks.append(None)
 
-# metrics for response generation
-bleu   = load_metric("bleu").compute(predictions=pred_answers, references=[[g] for g in gold_answers])["bleu"]
-rouge  = load_metric("rouge").compute(predictions=pred_answers, references=[[g] for g in gold_answers])
-meteor = load_metric("meteor").compute(predictions=pred_answers, references=[[g] for g in gold_answers])["meteor"]
-bertsc = load_metric("bertscore").compute(predictions=pred_answers, references=[[g] for g in gold_answers], lang="en")["f1"]
+    end = time.time()
+    total_response_time += (end-start)
 
-print(f"BLEU: {bleu:.3f}")
-print(f"ROUGE: {rouge}")
-print(f"METEOR: {meteor:.3f}")
-print(f"BERTScore (mean F1): {np.mean(bertsc):.3f}")
+print(f"⏰ Average response time: {total_response_time / len(entries)}")
 
-# metrics for retrieval
-valid = [r for r in retrieved_ranks if r is not None]
-prec1 = sum(1 for r in valid if r == 1) / len(valid) if valid else 0.0
-mrr   = np.mean([1.0/r for r in valid]) if valid else 0.0
+# ---------- text metrics -----------------------------------------------------
+bleu   = load_metric("bleu").compute(predictions=pred_answers,
+                                     references=[[t] for t in gold_texts])["bleu"]
+rouge1 = load_metric("rouge").compute(predictions=pred_answers,
+                                      references=[[t] for t in gold_texts])["rouge1"]
+meteor = load_metric("meteor").compute(predictions=pred_answers,
+                                       references=[[t] for t in gold_texts])["meteor"]
+berts  = load_metric("bertscore").compute(predictions=pred_answers,
+                                          references=[[t] for t in gold_texts],
+                                          lang="en")["f1"]
 
-print(f"Precision@1: {prec1:.3f}")
-print(f"MRR: {mrr:.3f}")
+print(f"\nBLEU      : {bleu:.3f}")
+print(f"ROUGE-1   : {rouge1:.3f}")
+print(f"METEOR    : {meteor:.3f}")
+print(f"BERTScore : {np.mean(berts):.3f}")
 
-if pe_preds:
-    pe_acc = accuracy_score(pe_truth, pe_preds)
-    print(f"PE Accuracy (seq-only): {pe_acc:.3f}")
-if ptm_preds:
-    ptm_mae = mean_absolute_error(ptm_truth, ptm_preds)
-    rho, _  = spearmanr(ptm_truth, ptm_preds)
-    print(f"PTM  MAE (seq-only): {ptm_mae:.2f} | Spearman ρ: {rho:.3f}")
+valid = [r for r in retrieved_ranks if r]
+if valid:
+    prec1 = sum(1 for r in valid if r==1)/len(valid)
+    mrr   = np.mean([1/r for r in valid])
+    print(f"\nRetrieval  Precision@1={prec1:.3f} | MRR={mrr:.3f}")
+else:
+    print("\nRetrieval  (skipped - no accessions in this split)")
 
-# saving rersults
-out_csv = Path("eval_results.csv")
-with open(out_csv, "w", newline="") as f:
+# ---------- numeric metrics --------------------------------------------------
+if ptm_gold:
+    g = np.array(list(ptm_gold.values()), dtype=float)
+    p = np.array([ptm_pred[i] for i in ptm_gold], dtype=float)
+    k = np.array([mean_ptm_5nn[ids.index(i)] for i in ptm_gold], dtype=float)
+    mask_m = ~np.isnan(g)&~np.isnan(p); mask_k = ~np.isnan(g)&~np.isnan(k)
+    if mask_m.any():
+        print(f"\nPTM Model  (N={mask_m.sum()})  MAE={mean_absolute_error(g[mask_m],p[mask_m]):.2f} | ρ=n/a")
+    else: print("\nPTM Model  (no usable examples)")
+    if mask_k.any():
+        print(f"PTM 5-NN   (N={mask_k.sum()})  MAE={mean_absolute_error(g[mask_k],k[mask_k]):.2f} | ρ=n/a")
+    else: print("PTM 5-NN   (no usable examples)")
+
+if pe_gold:
+    g = np.array(list(pe_gold.values()), dtype=float)
+    p = np.array([pe_pred[i] for i in pe_gold], dtype=float)
+    k = np.array([maj_pe_5nn[ids.index(i)] for i in pe_gold], dtype=float)
+    mask_m = ~np.isnan(g)&~np.isnan(p); mask_k = ~np.isnan(g)&~np.isnan(k)
+    if mask_m.any():
+        print(f"\nPE  Model  (N={mask_m.sum()})  Acc={accuracy_score(g[mask_m],p[mask_m]):.3f}")
+    else: print("\nPE  Model  (no usable examples)")
+    if mask_k.any():
+        print(f"PE 5-NN    (N={mask_k.sum()})  Acc={accuracy_score(g[mask_k],k[mask_k]):.3f}")
+    else: print("PE 5-NN    (no usable examples)")
+
+# ---------- CSV --------------------------------------------------------------
+with Path(f"eval_results_{SPLIT}.csv").open("w", newline="") as f:
     writer = csv.writer(f)
-    writer.writerow(["id","question","gold","pred","retrieval_rank"])
-    for i, q, g, p, rr in zip(ids, questions, gold_answers, pred_answers, retrieved_ranks):
-        writer.writerow([i, q, g, p, rr])
+    writer.writerow(["id","question","gold_num","gold_text","pred",
+                     "retrieval_rank","mean_ptm_5NN","maj_pe_5NN"])
+    for row in zip(ids, questions, gold_nums, gold_texts,
+                   pred_answers, retrieved_ranks, mean_ptm_5nn, maj_pe_5nn):
+        writer.writerow(row)
 
-print("✅ Evaluation complete! Results saved to eval_results.csv")
+print(f"\n✅ {SPLIT.capitalize()} evaluation complete  - results saved.")

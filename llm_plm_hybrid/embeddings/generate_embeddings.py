@@ -108,9 +108,26 @@ if __name__ == "__main__":
 
     print("\n🎉 All embeddings generated!")
 
+    print("🔗 Combining classification_train + regression_train → combined_train.npz…")
+    class_npz = EMB_DIR / "classification_train.npz"
+    reg_npz   = EMB_DIR / "regression_train.npz"
+
+    # load both
+    cdata = np.load(class_npz, allow_pickle=True)
+    rdata = np.load(reg_npz,   allow_pickle=True)
+
+    # stack embeddings (X), labels (y) and accessions/meta
+    X_comb = np.concatenate([cdata["X"], rdata["X"]], axis=0)
+    y_comb = np.concatenate([cdata["y"], rdata["y"]], axis=0)
+    m_comb = np.concatenate([cdata["meta"], rdata["meta"]], axis=0)
+
+    out_comb = EMB_DIR / "combined_train.npz"
+    np.savez_compressed(out_comb, X=X_comb, y=y_comb, meta=m_comb)
+    print(f"✅ Saved combined embeddings+meta → {out_comb} (shape={X_comb.shape})")
+
     # UMAP
-    print("🗺️ Computing UMAP on classification_train embeddings…")
-    train_npz = EMB_DIR / "classification_train.npz"
+    print("🗺️ Computing UMAP on combined training embeddings…")
+    train_npz = EMB_DIR / "combined_train.npz"
     data = np.load(train_npz, allow_pickle=True)
     X = np.squeeze(data["X"])
     y = data["y"]
