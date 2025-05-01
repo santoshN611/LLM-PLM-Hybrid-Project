@@ -80,6 +80,7 @@ def process_split(split_name: str):
         emb = embed_sequence(seq)
         all_embs.append(emb)
         if i % REPORT_EVERY == 0 or i == len(seqs):
+            # cool little progress emoji
             print(f"   ↳ Completed {i}/{len(seqs)} embeddings")
 
     X    = np.stack(all_embs)
