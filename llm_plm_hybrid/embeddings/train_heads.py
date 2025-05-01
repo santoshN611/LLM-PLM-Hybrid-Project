@@ -15,9 +15,6 @@ HEADS_DIR.mkdir(exist_ok=True)
 
 # data loader
 def load_data(prefix):
-    """
-    📥 Loads embeddings/<prefix>.npz → (X, y), squeezing singleton dims.
-    """
     npz_path = EMB_DIR / f"{prefix}.npz"
     print(f"📥 Loading {npz_path}…")
     data = np.load(npz_path, allow_pickle=True)
@@ -110,7 +107,7 @@ def train(model, X_tr, y_tr, X_va, y_va, criterion, optimizer,
             torch.save(model.state_dict(), ckpt)
             print(f"✅ Saved best {head_name} head (val_loss={best_loss:.4f})")
 
-    # --- after training: plot ---
+    # plot
     epochs_range = np.arange(1, epochs+1)
     plt.figure(figsize=(8,5))
     plt.plot(epochs_range, history["train_loss"], label="train loss")
@@ -138,10 +135,9 @@ def train(model, X_tr, y_tr, X_va, y_va, criterion, optimizer,
     print(f"🎉 {head_name.upper()} training complete!  Plots saved to {HEADS_DIR}")
 
 if __name__ == "__main__":
-    # Protein‐Existence head (classification)
     X_tr, y_tr = load_data("classification_train")
     X_va, y_va = load_data("classification_val")
-    y_tr, y_va = y_tr - 1, y_va - 1  # shift 1–5 to 0–4
+    y_tr, y_va = y_tr - 1, y_va - 1  # shift 1–5 to 0–4 due to outputs
 
     emb_dim = X_tr.shape[1]
     pe_head = PEHead(emb_dim)
@@ -155,7 +151,6 @@ if __name__ == "__main__":
         head_name="pe"
     )
 
-    # PTM‐Count head (regression)
     X_tr, y_tr = load_data("regression_train")
     X_va, y_va = load_data("regression_val")
     y_tr, y_va = np.log1p(y_tr), np.log1p(y_va)

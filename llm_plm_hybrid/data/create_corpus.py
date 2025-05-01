@@ -1,12 +1,4 @@
-"""
-create_corpus.py
 
-Produces into data/:
-  - classification.csv: accession,sequence,existence_level (1–5)
-  - regression.csv:   accession,sequence,ptm_site_count
-
-First tries the TSV “stream” endpoint; falls back to JSON search with pagination.
-"""
 
 import os
 import requests, csv, time
@@ -14,7 +6,6 @@ from requests.utils import parse_header_links
 from pathlib import Path
 from tqdm import tqdm
 
-# existence level map to human language
 PE_MAP = {
     "Evidence at protein level":    1,
     "Evidence at transcript level": 2,
@@ -56,7 +47,7 @@ def stream_all_uniprot():
                 "ft_mod_res":        cols[idx["ft_mod_res"]],
             }
 
-# SEARCH pagination
+# SEARCH pagination, the more likely of the 2 endpoints to work
 SEARCH_URL     = "https://rest.uniprot.org/uniprotkb/search"
 SEARCH_HEADERS = {"User-Agent": "Mozilla/5.0"}
 

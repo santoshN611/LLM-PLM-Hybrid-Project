@@ -49,7 +49,6 @@ data    = np.load(emb_dir / "classification_train.npz", allow_pickle=True)
 X = np.squeeze(data["X"])
 meta = data["meta"]
 
-# Normalize once for cosine sim
 Xf = X.astype("float32")
 faiss.normalize_L2(Xf)
 
@@ -81,7 +80,7 @@ for seq in queries:
     D, I = index.search(embf, 5)
     neighs = [meta[i] for i in I[0]]
 
-    print(f"▶ Query sequence: {seq}")
+    print(f"Query sequence: {seq}")
     for acc in neighs:
         nbr_seq = seq_map.get(acc, "<missing>")
         print(f"   • {acc} → {nbr_seq}")

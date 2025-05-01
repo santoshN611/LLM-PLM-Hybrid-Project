@@ -1,4 +1,3 @@
-# retrieval.py
 import requests, warnings
 
 TAXON_MAP = {

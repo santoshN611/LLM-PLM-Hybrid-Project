@@ -22,23 +22,21 @@ def main():
 
     # X_gpu = cp.asarray(X)
 
-    # how many epochs UMAP will run (you can tune this)
+
     N_EPOCHS = 200
 
-    # set up tqdm
     pbar = tqdm(total=N_EPOCHS, desc="UMAP epochs")
 
-    # define a callback that updates the bar
     def umap_callback(current_epoch, total_epochs):
-        # tqdm only needs how many steps to advance
         pbar.update(1)
 
-    # create the reducer with a callback and matching n_epochs
+
     reducer = umap.UMAP(
         n_components=2,
         random_state=42,
         verbose=True,
-        n_epochs=N_EPOCHS
+        n_epochs=N_EPOCHS,
+        n_jobs=-1
     )
     # reducer = UMAP(
     #     n_neighbors=15,
@@ -47,15 +45,12 @@ def main():
     #     random_state=42
     # )
 
-    # run the projection
     Z = reducer.fit_transform(X, callback=umap_callback)
     # Z_gpu = reducer.fit_transform(X_gpu, callback=umap_callback)
     # Z = cp.asnumpy(Z_gpu)
 
-    # close the bar
     pbar.close()
 
-    # now plot as before
     plt.figure(figsize=(8,8))
     scatter = plt.scatter(Z[:,0], Z[:,1], c=y, s=5, alpha=0.7)
     plt.xlabel("UMAP Dimension 1")
@@ -66,7 +61,7 @@ def main():
 
     umap_path = VIS_DIR / "train_umap_labeled.png"
     plt.savefig(umap_path)
-    print(f"📊 Saved labeled UMAP plot → {umap_path}")
+    print(f"📊 Saved labeled UMAP plot -> {umap_path}")
     plt.close()
 
 if __name__ == "__main__":

@@ -1,4 +1,3 @@
-# retrieval_utils.py
 
 import numpy as np
 import faiss
@@ -19,7 +18,6 @@ def build_index(
     data = np.load(str(emb_file), allow_pickle=True)
     X = data['X']
 
-    # FORCE to 2D for proper shape
     X = np.squeeze(X)
     if X.ndim > 2:
         n = X.shape[0]

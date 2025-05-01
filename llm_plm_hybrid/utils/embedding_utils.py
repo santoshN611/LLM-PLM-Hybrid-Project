@@ -1,15 +1,14 @@
-# embedding_utils.py
 
 import numpy as np
 import matplotlib.pyplot as plt
-import umap  # pip install umap-learn
+import umap
 from sklearn.manifold import TSNE
 import torch
 import torch.nn as nn
 
 def plot_embedding(X: np.ndarray, method='umap', save_path='embedding.png'):
     """
-    🗺️ Reduce `X` (n_samples × emb_dim) to 2D via UMAP or t-SNE and save a scatter plot.
+    🗺️ Reduce `X` (n_samples x emb_dim) to 2D via UMAP or t-SNE and save a scatter plot.
     Automatically squeezes any singleton dimensions so UMAP/TSNE always sees a 2D array.
     """
     # Remove any singleton dimensions: e.g. (N,1,D) → (N,D)
@@ -32,12 +31,6 @@ def plot_embedding(X: np.ndarray, method='umap', save_path='embedding.png'):
     print(f"✅ [plot_embedding] Saved plot to {save_path}")
 
 class SparseAutoencoder(nn.Module):
-    """
-     A simple sparse autoencoder for interpretability:
-    - encoder: emb_dim -> bottleneck_dim
-    - decoder: bottleneck_dim -> emb_dim
-    - sparsity enforced via L1 penalty on bottleneck activations
-    """
     def __init__(self, emb_dim, bottleneck_dim=64, sparsity_coef=1e-3):
         super().__init__()
         self.encoder = nn.Linear(emb_dim, bottleneck_dim)
@@ -55,9 +48,7 @@ class SparseAutoencoder(nn.Module):
         return rec_loss + sparse_loss
 
 def train_autoencoder(X: np.ndarray, epochs=20, lr=1e-3):
-    """
-    🚀 Train the sparse autoencoder on `X` and return the trained model.
-    """
+    
     model = SparseAutoencoder(X.shape[1])
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     data = torch.from_numpy(X).float()
@@ -73,11 +64,6 @@ def train_autoencoder(X: np.ndarray, epochs=20, lr=1e-3):
     return model
 
 def linear_probe(Z: np.ndarray, labels: np.ndarray):
-    """
-    🔎 Fit a logistic regression on each embedding dimension Z[:, i] vs `labels`
-    to gauge interpretability of each latent dimension.
-    Returns an array of accuracy scores per dimension.
-    """
     from sklearn.linear_model import LogisticRegression
     scores = []
     print(f"🧪 [probe] Running linear probes on shape {Z.shape}...")

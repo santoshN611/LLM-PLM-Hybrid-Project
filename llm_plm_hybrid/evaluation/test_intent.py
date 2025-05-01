@@ -2,7 +2,6 @@ import csv
 from llm_plm_hybrid.qa.rag_pipeline import parse_question
 
 
-# random questions to test how well the pipeline parses intent
 test_data = [
     ("What is the protein existence level of lactase?",          "protein_existence"),
     ("How many PTM sites does P09812 have?",                     "ptm_count"),
@@ -16,7 +15,6 @@ test_data = [
     ("Count the post-translational modifications on YP_009724390.", "ptm_count"),
 ]
 
-# parse questions
 correct = 0
 results = []
 
@@ -28,7 +26,6 @@ for q, true_label in test_data:
     if is_correct:
         correct += 1
 
-# results
 total = len(test_data)
 acc = correct / total * 100
 print(f"Intent classification accuracy: {correct}/{total} = {acc:.1f}%\n")
@@ -37,9 +34,8 @@ print("Misclassifications:")
 for q, true, pred, ok in results:
     if not ok:
         print(f" • Q: {q!r}")
-        print(f"   – true: {true},  pred: {pred}\n")
+        print(f"   - true: {true},  pred: {pred}\n")
 
-# 4) write to csv
 with open("intent_test_results.csv", "w", newline="") as f:
     writer = csv.writer(f)
     writer.writerow(["question","true_intent","predicted_intent","correct"])

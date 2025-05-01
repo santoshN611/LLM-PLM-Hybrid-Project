@@ -1,9 +1,4 @@
-# llm_plm_hybrid/data/taxonomy.py
-
-"""
-Mapping from simple organism names to NCBI taxonomy IDs.
-Used by `rag_pipeline.py` to resolve name‐based queries.
-"""
+# used previously for accesions from uniprot
 
 TAXON_MAP = {
     'human':      9606,

@@ -1,13 +1,4 @@
-"""
-build_test_qa_corpus.py   (sequence-only version)
 
-Creates test_protein_qa.jsonl that contains:
-    • id
-    • question            (only sequence-based queries)
-    • gold_num            (stringified numeric answer)
-    • gold_text           (canonical natural-language answer)
-    • label               ("ptm_seq" | "pe_seq")
-"""
 
 import csv, json, requests
 from pathlib import Path
@@ -32,7 +23,6 @@ SEQ_PTM_TEMPLATES = [
     "Estimate the total PTM annotations for {seq}."
 ]
 
-# ───────────────────────── helpers ──────────────────────────
 def load_accessions(*csv_paths: str) -> List[str]:
     seen: Set[str] = set()
     for p in csv_paths:
@@ -61,7 +51,6 @@ def build_corpus(accessions: List[str], out_path: Path):
     out_path.parent.mkdir(exist_ok=True)
     idx = 1
     with out_path.open("w", encoding="utf-8") as fout:
-        # preload sequences & numeric gold from CSVs
         csv_map = {}
         data_dir = Path(__file__).resolve().parent.parent / "data"
         for fname in ("classification_test.csv", "regression_test.csv"):
@@ -79,7 +68,6 @@ def build_corpus(accessions: List[str], out_path: Path):
             true_pe  = csv_map[acc]["pe"]
             true_ptm = csv_map[acc]["ptm"]
 
-            # PE-sequence Qs
             for tmpl in SEQ_EXISTENCE_TEMPLATES:
                 q = tmpl.format(seq=seq)
                 num  = str(true_pe)
@@ -93,7 +81,6 @@ def build_corpus(accessions: List[str], out_path: Path):
                 }) + "\n")
                 idx += 1
 
-            # PTM-sequence Qs
             for tmpl in SEQ_PTM_TEMPLATES:
                 q    = tmpl.format(seq=seq)
                 num  = str(true_ptm)

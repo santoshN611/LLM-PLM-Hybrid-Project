@@ -59,12 +59,6 @@ class PTMHead(nn.Module):
 
 
 def load_heads(device="cpu"):
-    """
-    Load saved tiny-head weights from HEADS_DIR.
-    Returns:
-      - pe:  PEHead, set to eval() on `device`
-      - ptm: PTMHead, set to eval() on `device`
-    """
     # protein existence level classification head
     pe_state = torch.load(HEADS_DIR / "pe.pt", map_location=device)
     emb_dim = pe_state["layers.0.weight"].shape[1]

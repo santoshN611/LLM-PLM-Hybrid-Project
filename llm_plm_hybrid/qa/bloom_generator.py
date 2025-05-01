@@ -1,12 +1,9 @@
-# llm_plm_hybrid/qa/bloom_generator.py
-
 from transformers import BloomForCausalLM, BloomTokenizerFast
 import torch
 
+# not really used
+
 class BloomGenerator:
-    """
-    Wraps a BLOOM causal‐LM for free‐form answer generation.
-    """
     def __init__(self,
                  model_name: str = "bigscience/bloom-560m",
                  device: str = None):
@@ -18,9 +15,6 @@ class BloomGenerator:
                  prompt: str,
                  max_length: int = 256,
                  **kwargs) -> str:
-        """
-        Generates a human‐legible response given a markdown‐style prompt.
-        """
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
         outputs = self.model.generate(
             **inputs,

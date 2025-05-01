@@ -20,40 +20,38 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 pe_model, ptm_model = load_heads(device=DEVICE)
 
-# ---------- helpers ----------------------------------------------------------
 def is_ptm_seq(e): return e.get("label") == "ptm_seq"
 def is_pe_seq(e):  return e.get("label") == "pe_seq"
 
 SEQ_EXTRACT = re.compile(r"([ACDEFGHIKLMNPQRSTVWY]{6,})")
 INT_RE      = re.compile(r"\d+")
 
-def safe_int(x):            # int or NaN
+# failsafe for some NaN problems
+def safe_int(x):
     try: return int(x)
     except Exception: return np.nan
 
-def parse_pe_str(txt):      # extract leading digit from UniProt field
+def parse_pe_str(txt):
     if txt is None: return np.nan
     m = INT_RE.match(str(txt).strip())
     return int(m.group()) if m else np.nan
 
-# ---------- choose split -----------------------------------------------------
 SPLIT = "test"
 # SPLIT = "val"
 JSONL = Path(__file__).parent / f"{SPLIT}_protein_qa.jsonl"
 
 all_entries = [json.loads(l) for l in JSONL.open()]
-for e in all_entries:                       # backward-compat
+for e in all_entries:
     if "gold_num"  not in e: e["gold_num"]  = e["answer"]
     if "gold_text" not in e: e["gold_text"] = e["answer"]
 
 random.seed(42)
-entries = random.sample(all_entries, 5000)
+entries = random.sample(all_entries, 750)
 
 ids, questions, gold_texts, gold_nums = zip(*[
     (e["id"], e["question"], e["gold_text"], e["gold_num"]) for e in entries
 ])
 
-# ---------- storage ----------------------------------------------------------
 pred_answers, retrieved_ranks = [], []
 mean_ptm_5nn,   maj_pe_5nn    = [], []
 ptm_gold, ptm_pred            = {}, {}
@@ -62,7 +60,7 @@ pe_gold,  pe_pred             = {}, {}
 tiny_ptm_preds = {}
 tiny_pe_preds  = {}
 
-# ---------- retrieval index --------------------------------------------------
+# load faiss
 emb_dir  = Path(__file__).parent.parent / "embeddings"
 index, _ = load_index(emb_dir/"combined_train.index",
                       emb_dir/"combined_train.meta.npy")
@@ -70,7 +68,7 @@ train_npz = np.load(emb_dir/"combined_train.npz", allow_pickle=True)
 accs  = train_npz["meta"];   emb_X = train_npz["X"].squeeze(1).astype("float32")
 idx_map = {a:i for i,a in enumerate(accs)}
 
-# ---------- main loop --------------------------------------------------------
+# main function
 total_response_time = 0.0
 for e in tqdm(entries, desc=f"Evaluating {SPLIT} Q&A"):
     start = time.time()
@@ -93,7 +91,7 @@ for e in tqdm(entries, desc=f"Evaluating {SPLIT} Q&A"):
         seq = SEQ_EXTRACT.search(e["question"]).group(1)
         tiny_pe_preds[e["id"]] = pe_model.predict(seq, device=DEVICE)
 
-    # 5-NN baseline for seq tasks
+    # look at neighbors for metrics
     if (is_ptm_seq(e) or is_pe_seq(e)) and (m := SEQ_EXTRACT.search(q)):
         emb = embed_sequence(m.group(1))
         nbrs = search_neighbors(emb, k=5)
@@ -113,7 +111,8 @@ for e in tqdm(entries, desc=f"Evaluating {SPLIT} Q&A"):
     else:
         mean_ptm_5nn.append(np.nan); maj_pe_5nn.append(np.nan)
 
-    # retrieval rank (not applicable to pure-sequence corpora, but kept)
+    # retrieval rank not working, but not useful for us anyway
+    # gonna leave it in here for fear of breaking any code
     if (m := ACC_RE.search(q)):
         acc = m.group(0)
         if acc in idx_map:
@@ -130,7 +129,7 @@ for e in tqdm(entries, desc=f"Evaluating {SPLIT} Q&A"):
 
 print(f"⏰ Average response time: {total_response_time / len(entries)}")
 
-# ---------- text metrics -----------------------------------------------------
+#metrics
 bleu   = load_metric("bleu").compute(predictions=pred_answers,
                                      references=[[t] for t in gold_texts])["bleu"]
 rouge1 = load_metric("rouge").compute(predictions=pred_answers,
@@ -154,7 +153,7 @@ if valid:
 else:
     print("\nRetrieval  (skipped - no accessions in this split)")
 
-# ---------- numeric metrics --------------------------------------------------
+# more metrics
 if ptm_gold:
     g = np.array(list(ptm_gold.values()), dtype=float)
     p = np.array([ptm_pred[i] for i in ptm_gold], dtype=float)
@@ -185,7 +184,7 @@ if pe_gold:
         print(f"PE 5-NN    (N={mask_k.sum()})  Acc={accuracy_score(g[mask_k],k[mask_k]):.3f}")
     else: print("PE 5-NN    (no usable examples)")
 
-# ---------- CSV --------------------------------------------------------------
+# save answers
 with Path(f"eval_results_{SPLIT}.csv").open("w", newline="") as f:
     writer = csv.writer(f)
     writer.writerow(["id","question","gold_num","gold_text","pred",
@@ -199,4 +198,4 @@ with Path(f"eval_results_{SPLIT}.csv").open("w", newline="") as f:
             tiny_pe_preds.get(rid, ""),
         ])
 
-print(f"\n✅ {SPLIT.capitalize()} evaluation complete  - results saved.")
+print(f"\n✅ {SPLIT.capitalize()} evaluation complete - results saved.")

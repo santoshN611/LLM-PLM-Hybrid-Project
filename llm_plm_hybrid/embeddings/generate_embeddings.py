@@ -4,7 +4,7 @@ import warnings
 import torch
 import numpy as np
 import pandas as pd
-import umap          # pip install umap-learn
+import umap
 import matplotlib.pyplot as plt
 from pathlib import Path
 from tqdm import tqdm
@@ -43,10 +43,6 @@ os.makedirs(EMB_DIR, exist_ok=True)
 os.makedirs(VIS_DIR, exist_ok=True)
 
 def embed_sequence(seq: str) -> np.ndarray:
-    """
-    Embed an arbitrarily long protein by slicing into ≤CHUNK_STEP windows,
-    running each window on GPU first (then CPU on OOM), and averaging.
-    """
     windows = [seq[i:i + MAX_SEQ_LEN] for i in range(0, len(seq), CHUNK_STEP)]
     embs = []
 
@@ -72,10 +68,6 @@ def embed_sequence(seq: str) -> np.ndarray:
     return np.mean(embs, axis=0)
 
 def process_split(split_name: str):
-    """
-    Read data/<split_name>.csv, embed sequences, and save:
-      embeddings/<split_name>.npz (with X, y, meta arrays)
-    """
     csv_path = DATA_DIR / f"{split_name}.csv"
     print(f"\n📥 Loading {csv_path}…")
     df = pd.read_csv(csv_path)
@@ -108,7 +100,7 @@ if __name__ == "__main__":
 
     print("\n🎉 All embeddings generated!")
 
-    print("🔗 Combining classification_train + regression_train → combined_train.npz…")
+    print("🔗 Combining classification_train + regression_train -> combined_train.npz…")
     class_npz = EMB_DIR / "classification_train.npz"
     reg_npz   = EMB_DIR / "regression_train.npz"
 
