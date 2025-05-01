@@ -5,8 +5,8 @@ from pathlib import Path
 def build_faiss_index():
     base     = Path(__file__).resolve().parent.parent
     emb_dir  = base / "embeddings"
-    emb_file = emb_dir / "classification_train.npz"
-    idx_file = emb_dir / "classification_train.index"
+    emb_file = emb_dir / "combined_train.npz"
+    idx_file = emb_dir / "combined_train.index"
     print(f"🔄 Loading {emb_file}…")
     data = np.load(emb_file, allow_pickle=True)
     X = data["X"]

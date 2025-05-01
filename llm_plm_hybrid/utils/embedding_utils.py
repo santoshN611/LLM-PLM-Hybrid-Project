@@ -33,7 +33,7 @@ def plot_embedding(X: np.ndarray, method='umap', save_path='embedding.png'):
 
 class SparseAutoencoder(nn.Module):
     """
-    🏗️ A simple sparse autoencoder for interpretability:
+     A simple sparse autoencoder for interpretability:
     - encoder: emb_dim -> bottleneck_dim
     - decoder: bottleneck_dim -> emb_dim
     - sparsity enforced via L1 penalty on bottleneck activations

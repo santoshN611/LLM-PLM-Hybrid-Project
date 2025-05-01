@@ -8,11 +8,11 @@ import requests
 base_dir = Path(__file__).resolve().parent.parent
 emb_dir  = base_dir / "embeddings"
 
-INDEX_PATH = emb_dir / "classification_train.index"
-META_PATH  = emb_dir / "classification_train.meta.npy"
+INDEX_PATH = emb_dir / "combined_train.index"
+META_PATH  = emb_dir / "combined_train.meta.npy"
 
 def build_index(
-    emb_file=emb_dir / "classification_train.npz",
+    emb_file=emb_dir / "combined_train.npz",
     idx_file=INDEX_PATH,
     meta_file=META_PATH
 ):
@@ -52,7 +52,7 @@ def load_index(idx_file=INDEX_PATH, meta_file=META_PATH):
 
     # if meta file missing
     if not meta_file.exists():
-        npz_file = emb_dir / "classification_train.npz"
+        npz_file = emb_dir / "combined_train.npz"
         print(f"⚠️ [load_index] Metadata file not found; loading 'meta' from {npz_file}")
         data = np.load(str(npz_file), allow_pickle=True)
         if 'meta' not in data:

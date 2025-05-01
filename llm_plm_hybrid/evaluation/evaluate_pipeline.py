@@ -3,6 +3,7 @@ from collections import Counter
 from pathlib     import Path
 from tqdm        import tqdm
 import time
+import torch
 
 from sklearn.metrics import accuracy_score, mean_absolute_error
 from scipy.stats     import spearmanr
@@ -12,6 +13,12 @@ import nltk; nltk.download("punkt", quiet=True)
 from llm_plm_hybrid.qa.rag_pipeline               import answer, ACC_RE
 from llm_plm_hybrid.embeddings.generate_embeddings import embed_sequence
 from llm_plm_hybrid.retrieval.retrieval_utils      import load_index, search_neighbors
+
+from llm_plm_hybrid.embeddings.tiny_heads import load_heads
+
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+pe_model, ptm_model = load_heads(device=DEVICE)
 
 # ---------- helpers ----------------------------------------------------------
 def is_ptm_seq(e): return e.get("label") == "ptm_seq"
@@ -30,8 +37,8 @@ def parse_pe_str(txt):      # extract leading digit from UniProt field
     return int(m.group()) if m else np.nan
 
 # ---------- choose split -----------------------------------------------------
-# SPLIT = "test"
-SPLIT = "val"
+SPLIT = "test"
+# SPLIT = "val"
 JSONL = Path(__file__).parent / f"{SPLIT}_protein_qa.jsonl"
 
 all_entries = [json.loads(l) for l in JSONL.open()]
@@ -40,7 +47,7 @@ for e in all_entries:                       # backward-compat
     if "gold_text" not in e: e["gold_text"] = e["answer"]
 
 random.seed(42)
-entries = random.sample(all_entries, 100)
+entries = random.sample(all_entries, 5000)
 
 ids, questions, gold_texts, gold_nums = zip(*[
     (e["id"], e["question"], e["gold_text"], e["gold_num"]) for e in entries
@@ -52,11 +59,14 @@ mean_ptm_5nn,   maj_pe_5nn    = [], []
 ptm_gold, ptm_pred            = {}, {}
 pe_gold,  pe_pred             = {}, {}
 
+tiny_ptm_preds = {}
+tiny_pe_preds  = {}
+
 # ---------- retrieval index --------------------------------------------------
 emb_dir  = Path(__file__).parent.parent / "embeddings"
-index, _ = load_index(emb_dir/"classification_train.index",
-                      emb_dir/"classification_train.meta.npy")
-train_npz = np.load(emb_dir/"classification_train.npz", allow_pickle=True)
+index, _ = load_index(emb_dir/"combined_train.index",
+                      emb_dir/"combined_train.meta.npy")
+train_npz = np.load(emb_dir/"combined_train.npz", allow_pickle=True)
 accs  = train_npz["meta"];   emb_X = train_npz["X"].squeeze(1).astype("float32")
 idx_map = {a:i for i,a in enumerate(accs)}
 
@@ -70,10 +80,18 @@ for e in tqdm(entries, desc=f"Evaluating {SPLIT} Q&A"):
 
     if is_ptm_seq(e):
         ptm_gold[e["id"]] = safe_int(gold_num)
+        
+
         m = INT_RE.search(pred); ptm_pred[e["id"]] = safe_int(m.group()) if m else np.nan
+        seq = SEQ_EXTRACT.search(e["question"]).group(1)
+        tiny_ptm_preds[e["id"]] = ptm_model.predict(seq, device=DEVICE)
     elif is_pe_seq(e):
         pe_gold[e["id"]]  = safe_int(gold_num)
+        
+
         m = INT_RE.search(pred); pe_pred[e["id"]]  = safe_int(m.group()) if m else np.nan
+        seq = SEQ_EXTRACT.search(e["question"]).group(1)
+        tiny_pe_preds[e["id"]] = pe_model.predict(seq, device=DEVICE)
 
     # 5-NN baseline for seq tasks
     if (is_ptm_seq(e) or is_pe_seq(e)) and (m := SEQ_EXTRACT.search(q)):
@@ -142,6 +160,9 @@ if ptm_gold:
     p = np.array([ptm_pred[i] for i in ptm_gold], dtype=float)
     k = np.array([mean_ptm_5nn[ids.index(i)] for i in ptm_gold], dtype=float)
     mask_m = ~np.isnan(g)&~np.isnan(p); mask_k = ~np.isnan(g)&~np.isnan(k)
+    tp = np.array([tiny_ptm_preds[i] for i in ptm_gold], dtype=float)
+    mask_t = ~np.isnan(g)&~np.isnan(tp)
+    print(f"PTM tiny-head (N={mask_t.sum()}) MAE={mean_absolute_error(g[mask_t], tp[mask_t]):.2f}")
     if mask_m.any():
         print(f"\nPTM Model  (N={mask_m.sum()})  MAE={mean_absolute_error(g[mask_m],p[mask_m]):.2f} | ρ=n/a")
     else: print("\nPTM Model  (no usable examples)")
@@ -154,6 +175,9 @@ if pe_gold:
     p = np.array([pe_pred[i] for i in pe_gold], dtype=float)
     k = np.array([maj_pe_5nn[ids.index(i)] for i in pe_gold], dtype=float)
     mask_m = ~np.isnan(g)&~np.isnan(p); mask_k = ~np.isnan(g)&~np.isnan(k)
+    tp = np.array([tiny_pe_preds[i] for i in pe_gold], dtype=float)
+    mask_t = ~np.isnan(g)&~np.isnan(tp)
+    print(f"PTM tiny-head (N={mask_t.sum()}) MAE={mean_absolute_error(g[mask_t], tp[mask_t]):.2f}")
     if mask_m.any():
         print(f"\nPE  Model  (N={mask_m.sum()})  Acc={accuracy_score(g[mask_m],p[mask_m]):.3f}")
     else: print("\nPE  Model  (no usable examples)")
@@ -165,9 +189,14 @@ if pe_gold:
 with Path(f"eval_results_{SPLIT}.csv").open("w", newline="") as f:
     writer = csv.writer(f)
     writer.writerow(["id","question","gold_num","gold_text","pred",
-                     "retrieval_rank","mean_ptm_5NN","maj_pe_5NN"])
-    for row in zip(ids, questions, gold_nums, gold_texts,
-                   pred_answers, retrieved_ranks, mean_ptm_5nn, maj_pe_5nn):
-        writer.writerow(row)
+                     "retrieval_rank","mean_ptm_5NN","maj_pe_5NN", "tiny_ptm_pred", "tiny_pe_pred"])
+    for rid, q, gn, gt, pa, rr, m5, p5 in zip(
+            ids, questions, gold_nums, gold_texts,
+            pred_answers, retrieved_ranks, mean_ptm_5nn, maj_pe_5nn):
+        writer.writerow([
+            rid, q, gn, gt, pa, rr, m5, p5,
+            tiny_ptm_preds.get(rid, ""),
+            tiny_pe_preds.get(rid, ""),
+        ])
 
 print(f"\n✅ {SPLIT.capitalize()} evaluation complete  - results saved.")

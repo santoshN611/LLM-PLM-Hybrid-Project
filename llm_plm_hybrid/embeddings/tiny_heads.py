@@ -1,6 +1,9 @@
 import torch
 import torch.nn as nn
 from pathlib import Path
+import numpy as np
+from llm_plm_hybrid.embeddings.generate_embeddings import embed_sequence
+
 
 
 HEADS_DIR = Path.cwd() / "tiny_heads"
@@ -16,6 +19,20 @@ class PEHead(nn.Module):
 
     def forward(self, x):
         return self.layers(x)
+    
+    def predict(self, seq: str, device="cpu") -> int:
+        # 1) get raw embedding
+        emb = embed_sequence(seq)
+        if emb.ndim == 2:
+            emb = emb.mean(0)
+        x = torch.from_numpy(emb).float().unsqueeze(0).to(device)
+        # 2) forward
+        self.eval()
+        with torch.no_grad():
+            logits = self(x)                 # shape (1,5)
+            pred = logits.argmax(dim=-1).item()
+        # 3) convert 0–4 back to 1–5
+        return pred + 1
 
 
 class PTMHead(nn.Module):
@@ -29,6 +46,16 @@ class PTMHead(nn.Module):
 
     def forward(self, x):
         return self.layers(x)
+    
+    def predict(self, seq: str, device="cpu") -> float:
+        emb = embed_sequence(seq)
+        if emb.ndim == 2:
+            emb = emb.mean(0)
+        x = torch.from_numpy(emb).float().unsqueeze(0).to(device)
+        self.eval()
+        with torch.no_grad():
+            out = self(x).squeeze().item()   # this is log1p(ptm_count)
+        return float(np.expm1(out))          # invert the log1p
 
 
 def load_heads(device="cpu"):
